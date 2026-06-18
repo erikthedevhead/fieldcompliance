@@ -1,8 +1,10 @@
 import { DeadlinesService } from './deadlines.service';
+import { DeadlineGeneratorService } from './deadline-generator.service';
 import { CompleteDeadlineDto } from './dto/complete-deadline.dto';
 export declare class DeadlinesController {
     private deadlines;
-    constructor(deadlines: DeadlinesService);
+    private generator;
+    constructor(deadlines: DeadlinesService, generator: DeadlineGeneratorService);
     list(user: any, status?: string, facilityId?: string): Promise<({
         facility: {
             id: string;
@@ -10,21 +12,21 @@ export declare class DeadlinesController {
             state: string;
         };
         assignedUser: {
+            id: string;
             email: string;
             firstName: string;
             lastName: string;
-            id: string;
         };
     } & {
         id: string;
-        orgId: string;
         createdAt: Date;
         updatedAt: Date;
+        orgId: string;
         facilityId: string;
-        description: string | null;
         regulationVersionId: string;
         ruleCode: string;
         title: string;
+        description: string | null;
         dueDate: Date;
         periodStart: Date | null;
         periodEnd: Date | null;
@@ -41,20 +43,20 @@ export declare class DeadlinesController {
             state: string;
         };
         assignedUser: {
+            id: string;
             firstName: string;
             lastName: string;
-            id: string;
         };
     } & {
         id: string;
-        orgId: string;
         createdAt: Date;
         updatedAt: Date;
+        orgId: string;
         facilityId: string;
-        description: string | null;
         regulationVersionId: string;
         ruleCode: string;
         title: string;
+        description: string | null;
         dueDate: Date;
         periodStart: Date | null;
         periodEnd: Date | null;
@@ -71,20 +73,20 @@ export declare class DeadlinesController {
             state: string;
         };
         assignedUser: {
+            id: string;
             firstName: string;
             lastName: string;
-            id: string;
         };
     } & {
         id: string;
-        orgId: string;
         createdAt: Date;
         updatedAt: Date;
+        orgId: string;
         facilityId: string;
-        description: string | null;
         regulationVersionId: string;
         ruleCode: string;
         title: string;
+        description: string | null;
         dueDate: Date;
         periodStart: Date | null;
         periodEnd: Date | null;
@@ -94,31 +96,35 @@ export declare class DeadlinesController {
         completedBy: string | null;
         notes: string | null;
     })[]>;
+    generate(user: any): Promise<{
+        created: number;
+        message: string;
+    }>;
     findOne(user: any, id: string): Promise<{
         facility: {
             id: string;
-            orgId: string;
+            name: string;
             isActive: boolean;
             createdAt: Date;
             updatedAt: Date;
-            name: string;
+            orgId: string;
             type: import(".prisma/client").$Enums.FacilityType;
-            state: string;
             apiWellNumber: string | null;
+            state: string;
             county: string | null;
             latitude: import("@prisma/client-runtime-utils").Decimal | null;
             longitude: import("@prisma/client-runtime-utils").Decimal | null;
             legalDescription: string | null;
-            commissionedAt: Date | null;
             operatorId: string | null;
+            commissionedAt: Date | null;
             decommissionedAt: Date | null;
         };
         regulationVersion: {
             regulation: {
                 id: string;
                 isActive: boolean;
-                description: string | null;
                 title: string;
+                description: string | null;
                 code: string;
                 jurisdiction: import(".prisma/client").$Enums.RegulationJurisdiction;
                 cfrPart: string | null;
@@ -135,21 +141,21 @@ export declare class DeadlinesController {
             rawJsonSchema: import("@prisma/client/runtime/client").JsonValue;
         };
         assignedUser: {
+            id: string;
             email: string;
             firstName: string;
             lastName: string;
-            id: string;
         };
     } & {
         id: string;
-        orgId: string;
         createdAt: Date;
         updatedAt: Date;
+        orgId: string;
         facilityId: string;
-        description: string | null;
         regulationVersionId: string;
         ruleCode: string;
         title: string;
+        description: string | null;
         dueDate: Date;
         periodStart: Date | null;
         periodEnd: Date | null;
@@ -161,14 +167,14 @@ export declare class DeadlinesController {
     }>;
     complete(user: any, id: string, dto: CompleteDeadlineDto): Promise<{
         id: string;
-        orgId: string;
         createdAt: Date;
         updatedAt: Date;
+        orgId: string;
         facilityId: string;
-        description: string | null;
         regulationVersionId: string;
         ruleCode: string;
         title: string;
+        description: string | null;
         dueDate: Date;
         periodStart: Date | null;
         periodEnd: Date | null;
@@ -182,14 +188,14 @@ export declare class DeadlinesController {
         userId: string | null;
     }): Promise<{
         id: string;
-        orgId: string;
         createdAt: Date;
         updatedAt: Date;
+        orgId: string;
         facilityId: string;
-        description: string | null;
         regulationVersionId: string;
         ruleCode: string;
         title: string;
+        description: string | null;
         dueDate: Date;
         periodStart: Date | null;
         periodEnd: Date | null;

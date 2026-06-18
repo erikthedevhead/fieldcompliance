@@ -1,11 +1,16 @@
-import { Controller, Get, Patch, Param, Body, Query } from '@nestjs/common'
+import { Controller, Get, Post, Patch, Param, Body, Query, HttpCode, HttpStatus } from '@nestjs/common'
 import { DeadlinesService } from './deadlines.service'
+import { DeadlineGeneratorService } from './deadline-generator.service'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
+import { Roles } from '../auth/decorators/roles.decorator'
 import { CompleteDeadlineDto } from './dto/complete-deadline.dto'
 
 @Controller('deadlines')
 export class DeadlinesController {
-  constructor(private deadlines: DeadlinesService) {}
+  constructor(
+    private deadlines: DeadlinesService,
+    private generator: DeadlineGeneratorService,
+  ) {}
 
   /** Upcoming deadlines for the org, optionally filtered by status or facility. */
   @Get()
@@ -27,6 +32,19 @@ export class DeadlinesController {
   @Get('overdue')
   overdue(@CurrentUser() user: any) {
     return this.deadlines.overdue(user.orgId)
+  }
+
+  /**
+   * Manually trigger the deadline generator for the current org.
+   * The daily cron handles this automatically; this is for testing
+   * and for first-run after enrolling in a new regulation.
+   */
+  @Roles('ORG_ADMIN', 'EHS_COORDINATOR')
+  @Post('generate')
+  @HttpCode(HttpStatus.OK)
+  async generate(@CurrentUser() user: any) {
+    const created = await this.generator.generateForOrg(user.orgId)
+    return { created, message: `Generated ${created} new deadlines` }
   }
 
   @Get(':id')

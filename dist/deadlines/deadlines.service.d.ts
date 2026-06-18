@@ -130,8 +130,8 @@ export declare class DeadlinesService {
             id: string;
             createdAt: Date;
             regulationId: string;
-            version: string;
             effectiveDate: Date;
+            version: string;
             expiresAt: Date | null;
             changeNotes: string | null;
             rawJsonSchema: import("@prisma/client/runtime/client").JsonValue;

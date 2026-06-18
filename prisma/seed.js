@@ -6,6 +6,7 @@
 require("dotenv").config();
 const { PrismaClient } = require("@prisma/client");
 const { PrismaPg } = require("@prisma/adapter-pg");
+const bcrypt = require("bcrypt");
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
@@ -450,12 +451,14 @@ async function main() {
     },
   });
 
+  const adminPasswordHash = await bcrypt.hash("Localdev123!", 12);
   const adminUser = await prisma.user.upsert({
     where: { email: "admin@lonestarep.example.com" },
-    update: {},
+    update: { passwordHash: adminPasswordHash },
     create: {
       orgId: sampleOrg.id,
       email: "admin@lonestarep.example.com",
+      passwordHash: adminPasswordHash,
       firstName: "Sample",
       lastName: "Admin",
       role: "ORG_ADMIN",

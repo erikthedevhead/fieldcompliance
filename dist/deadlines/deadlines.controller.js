@@ -15,12 +15,16 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DeadlinesController = void 0;
 const common_1 = require("@nestjs/common");
 const deadlines_service_1 = require("./deadlines.service");
+const deadline_generator_service_1 = require("./deadline-generator.service");
 const current_user_decorator_1 = require("../auth/decorators/current-user.decorator");
+const roles_decorator_1 = require("../auth/decorators/roles.decorator");
 const complete_deadline_dto_1 = require("./dto/complete-deadline.dto");
 let DeadlinesController = class DeadlinesController {
     deadlines;
-    constructor(deadlines) {
+    generator;
+    constructor(deadlines, generator) {
         this.deadlines = deadlines;
+        this.generator = generator;
     }
     list(user, status, facilityId) {
         return this.deadlines.list(user.orgId, { status, facilityId });
@@ -30,6 +34,10 @@ let DeadlinesController = class DeadlinesController {
     }
     overdue(user) {
         return this.deadlines.overdue(user.orgId);
+    }
+    async generate(user) {
+        const created = await this.generator.generateForOrg(user.orgId);
+        return { created, message: `Generated ${created} new deadlines` };
     }
     findOne(user, id) {
         return this.deadlines.findById(id, user.orgId);
@@ -67,6 +75,15 @@ __decorate([
     __metadata("design:returntype", void 0)
 ], DeadlinesController.prototype, "overdue", null);
 __decorate([
+    (0, roles_decorator_1.Roles)('ORG_ADMIN', 'EHS_COORDINATOR'),
+    (0, common_1.Post)('generate'),
+    (0, common_1.HttpCode)(common_1.HttpStatus.OK),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object]),
+    __metadata("design:returntype", Promise)
+], DeadlinesController.prototype, "generate", null);
+__decorate([
     (0, common_1.Get)(':id'),
     __param(0, (0, current_user_decorator_1.CurrentUser)()),
     __param(1, (0, common_1.Param)('id')),
@@ -94,6 +111,7 @@ __decorate([
 ], DeadlinesController.prototype, "assign", null);
 exports.DeadlinesController = DeadlinesController = __decorate([
     (0, common_1.Controller)('deadlines'),
-    __metadata("design:paramtypes", [deadlines_service_1.DeadlinesService])
+    __metadata("design:paramtypes", [deadlines_service_1.DeadlinesService,
+        deadline_generator_service_1.DeadlineGeneratorService])
 ], DeadlinesController);
 //# sourceMappingURL=deadlines.controller.js.map

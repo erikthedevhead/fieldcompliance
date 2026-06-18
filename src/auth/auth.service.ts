@@ -15,6 +15,8 @@ export interface JwtPayload {
   role: string
 }
 
+const BCRYPT_ROUNDS = 12
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -31,10 +33,12 @@ export class AuthService {
       include: { org: { select: { id: true, name: true, slug: true, planTier: true } } },
     })
 
-    // TODO: store hashed passwords on the User model (passwordHash column to be added)
-    // For now this is a stub that needs a password column added to the schema.
-    // Once added: const valid = await bcrypt.compare(dto.password, user.passwordHash)
-    if (!user || !user.isActive) {
+    if (!user || !user.isActive || !user.passwordHash) {
+      throw new UnauthorizedException('Invalid credentials')
+    }
+
+    const valid = await bcrypt.compare(dto.password, user.passwordHash)
+    if (!valid) {
       throw new UnauthorizedException('Invalid credentials')
     }
 
@@ -65,7 +69,7 @@ export class AuthService {
 
   /**
    * Register a new organization + first admin user.
-   * In production, this is the signup flow — creates an org and its first ORG_ADMIN.
+   * Creates an org and its first ORG_ADMIN with a 14-day trial.
    */
   async register(dto: RegisterDto) {
     const existing = await this.prisma.user.findUnique({ where: { email: dto.email.toLowerCase() } })
@@ -79,8 +83,7 @@ export class AuthService {
       throw new ConflictException('Organization name already taken')
     }
 
-    // TODO: hash dto.password into passwordHash once schema field is added
-    // const passwordHash = await bcrypt.hash(dto.password, 12)
+    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS)
 
     const org = await this.prisma.organization.create({
       data: {
@@ -93,6 +96,7 @@ export class AuthService {
         users: {
           create: {
             email: dto.email.toLowerCase(),
+            passwordHash,
             firstName: dto.firstName,
             lastName: dto.lastName,
             role: 'ORG_ADMIN',
@@ -124,7 +128,7 @@ export class AuthService {
   }
 
   /**
-   * Request a password reset — generates a token, stores it, and (TODO) emails it via SendGrid.
+   * Request a password reset — generates a token and (TODO) emails it via SendGrid.
    */
   async requestPasswordReset(email: string) {
     const user = await this.prisma.user.findUnique({ where: { email: email.toLowerCase() } })
@@ -160,13 +164,12 @@ export class AuthService {
       throw new BadRequestException('Invalid or expired reset token')
     }
 
-    // TODO: hash dto.newPassword and store on passwordHash column (schema update needed)
-    // const passwordHash = await bcrypt.hash(dto.newPassword, 12)
+    const passwordHash = await bcrypt.hash(dto.newPassword, BCRYPT_ROUNDS)
 
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
-        // passwordHash,
+        passwordHash,
         resetToken: null,
         resetTokenExpiry: null,
       },
@@ -177,7 +180,7 @@ export class AuthService {
 
   /**
    * Verify a JWT and return the user from the database.
-   * Called by the JwtStrategy on every authenticated request.
+   * Called by JwtStrategy.validate() on every authenticated request.
    */
   async verifyUser(payload: JwtPayload) {
     const user = await this.prisma.user.findUnique({

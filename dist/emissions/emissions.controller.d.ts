@@ -19,10 +19,10 @@ export declare class EmissionsController {
         updatedAt: Date;
         facilityId: string;
         notes: string | null;
+        emissionSource: import(".prisma/client").$Enums.EmissionSource;
         equipmentId: string | null;
         reportingPeriodStart: Date;
         reportingPeriodEnd: Date;
-        emissionSource: import(".prisma/client").$Enums.EmissionSource;
         pollutant: string;
         calculationMethod: string;
         emissionFactorId: string | null;

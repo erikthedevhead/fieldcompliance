@@ -10,14 +10,15 @@ exports.DeadlinesModule = void 0;
 const common_1 = require("@nestjs/common");
 const deadlines_controller_1 = require("./deadlines.controller");
 const deadlines_service_1 = require("./deadlines.service");
+const deadline_generator_service_1 = require("./deadline-generator.service");
 let DeadlinesModule = class DeadlinesModule {
 };
 exports.DeadlinesModule = DeadlinesModule;
 exports.DeadlinesModule = DeadlinesModule = __decorate([
     (0, common_1.Module)({
         controllers: [deadlines_controller_1.DeadlinesController],
-        providers: [deadlines_service_1.DeadlinesService],
-        exports: [deadlines_service_1.DeadlinesService],
+        providers: [deadlines_service_1.DeadlinesService, deadline_generator_service_1.DeadlineGeneratorService],
+        exports: [deadlines_service_1.DeadlinesService, deadline_generator_service_1.DeadlineGeneratorService],
     })
 ], DeadlinesModule);
 //# sourceMappingURL=deadlines.module.js.map
