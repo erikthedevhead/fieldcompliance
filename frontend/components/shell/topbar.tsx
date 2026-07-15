@@ -1,8 +1,10 @@
 'use client'
 
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Search, LogOut } from 'lucide-react'
 import { useAuthStore } from '@/lib/auth-store'
+import { NavLinks } from './nav-links'
 
 export function Topbar() {
   const router = useRouter()
@@ -22,33 +24,39 @@ export function Topbar() {
 
   return (
     <header className="sticky top-0 z-30 bg-canvas/85 backdrop-blur border-b border-hairline">
-      <div className="flex items-center justify-between px-6 h-14">
-        {/* Brand */}
-        <div className="flex items-center gap-3">
-          <div
-            aria-hidden
-            className="h-6 w-6 rounded-[4px] bg-ink text-canvas grid place-items-center text-[11px] font-mono"
+      <div className="flex items-center justify-between px-6 h-14 gap-4">
+        {/* Brand + nav */}
+        <div className="flex items-center gap-6 min-w-0">
+          <Link
+            href="/"
+            className="flex items-center gap-3 focus-ring rounded flex-shrink-0"
           >
-            FC
-          </div>
-          <div className="flex items-center gap-2 text-[14px] font-medium text-ink">
-            FieldCompliance
-            {user?.org?.name && (
-              <>
-                <span className="text-ink-subtle">·</span>
-                <span className="text-ink-muted font-normal">{user.org.name}</span>
-              </>
-            )}
-          </div>
+            <div
+              aria-hidden
+              className="h-6 w-6 rounded-[4px] bg-ink text-canvas grid place-items-center text-[11px] font-mono"
+            >
+              FC
+            </div>
+            <div className="hidden sm:flex items-center gap-2 text-[14px] font-medium text-ink">
+              FieldCompliance
+              {user?.org?.name && (
+                <>
+                  <span className="text-ink-subtle">·</span>
+                  <span className="text-ink-muted font-normal truncate max-w-[180px]">
+                    {user.org.name}
+                  </span>
+                </>
+              )}
+            </div>
+          </Link>
+
+          <NavLinks />
         </div>
 
-        {/* Cmd+K placeholder — actual command menu ships in a later session */}
+        {/* Cmd+K placeholder */}
         <button
           type="button"
-          className="hidden md:flex items-center gap-2 h-8 px-3 rounded border border-hairline bg-canvas-card text-[12px] text-ink-muted hover:border-divider transition-colors focus-ring"
-          onClick={() => {
-            /* TODO: open command palette (later session) */
-          }}
+          className="hidden md:flex items-center gap-2 h-8 px-3 rounded border border-hairline bg-canvas-card text-[12px] text-ink-muted hover:border-divider transition-colors focus-ring flex-shrink-0"
         >
           <Search size={13} strokeWidth={1.75} />
           Jump to anything
@@ -56,7 +64,7 @@ export function Topbar() {
         </button>
 
         {/* User */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-shrink-0">
           <div className="hidden sm:block text-right leading-tight">
             <div className="text-[12px] text-ink font-medium">
               {user?.firstName} {user?.lastName}
