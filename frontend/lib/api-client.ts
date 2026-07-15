@@ -38,7 +38,6 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     body: body ? JSON.stringify(body) : undefined,
   })
 
-  // Handle 401 globally — session expired or invalid
   if (response.status === 401 && !skipAuth) {
     useAuthStore.getState().clearSession()
     if (typeof window !== 'undefined') {
@@ -162,6 +161,7 @@ export const deadlinesApi = {
     const qs = new URLSearchParams(params as Record<string, string>).toString()
     return request<Deadline[]>(`/deadlines${qs ? `?${qs}` : ''}`)
   },
+  get: (id: string) => request<Deadline>(`/deadlines/${id}`),
   upcoming: (days = 30) => request<Deadline[]>(`/deadlines/upcoming?days=${days}`),
   overdue: () => request<Deadline[]>('/deadlines/overdue'),
   generate: () => request<{ created: number; message: string }>('/deadlines/generate', { method: 'POST' }),
@@ -179,9 +179,54 @@ export interface EmissionSummary {
   co2Equivalent: string
 }
 
+/** One record within a calculation result — one per (equipment, pollutant). */
+export interface CalculationRecord {
+  equipmentId: string | null
+  equipmentTag: string | null
+  equipmentCategory: string
+  pollutant: string
+  calculatedQuantity: number
+  unit: string
+  quantityMetricTons: number
+  co2Equivalent: number
+  calculationMethod: string
+  emissionFactorId: string | null
+  activityData: Record<string, unknown>
+  notes?: string
+}
+
+export interface CalculationResult {
+  facilityId: string
+  periodStart: string
+  periodEnd: string
+  records: CalculationRecord[]
+  totals: {
+    co2eMetricTons: number
+    byPollutant: Record<string, number>
+  }
+  /** Number of EmissionRecord rows written. 0 for preview. */
+  persisted: number
+}
+
+export interface CalculateRequest {
+  facilityId: string
+  periodStart: string
+  periodEnd: string
+  persist?: boolean
+  activityData?: {
+    pneumaticHours?: number
+    compressorHours?: number
+    storageTankThroughputBbl?: number
+    fugitiveComponentCount?: number
+  }
+}
+
 export const emissionsApi = {
   summary: (year?: number) =>
     request<EmissionSummary[]>(`/emissions/summary${year ? `?year=${year}` : ''}`),
+
+  calculate: (payload: CalculateRequest) =>
+    request<CalculationResult>('/emissions/calculate', { method: 'POST', body: payload }),
 }
 
 // ============================================================
