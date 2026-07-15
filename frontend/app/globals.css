@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    color-scheme: light;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: #F7F8FA;
+    color: #111827;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+  ::selection {
+    background: #FEF3C7;
+    color: #111827;
+  }
+}
+
+@layer components {
+  /*
+   * Regulation code / factor value / audit reference.
+   * The signature typographic move: regulatory data renders as source code.
+   */
+  .reg-code {
+    @apply font-mono text-[13px] tracking-tight text-ink-soft;
+  }
+  .reg-code-strong {
+    @apply font-mono text-[13px] tracking-tight text-ink font-medium;
+  }
+
+  /* Focus ring — visible, no default blue halo */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink focus-visible:ring-offset-2 focus-visible:ring-offset-canvas;
+  }
+}
