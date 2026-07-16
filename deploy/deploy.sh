@@ -20,13 +20,13 @@ echo "→ Installing dependencies…"
 # The runtime container only reads from dist/ so this doesn't bloat prod memory.
 npm ci --silent
 
-echo "→ Generating Prisma client…"
-npx prisma generate >/dev/null 2>&1
-
 echo "→ Pushing schema changes to database…"
 # For MVP we use db push. Once you have real customer data, switch to
 # `npx prisma migrate deploy` and check migrations into git.
 npx prisma db push
+
+echo "→ Generating Prisma client…"
+npx prisma generate
 
 echo "→ Building NestJS…"
 npm run build
