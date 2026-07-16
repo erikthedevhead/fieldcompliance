@@ -26,7 +26,7 @@ npx prisma generate >/dev/null 2>&1
 echo "→ Pushing schema changes to database…"
 # For MVP we use db push. Once you have real customer data, switch to
 # `npx prisma migrate deploy` and check migrations into git.
-npx prisma db push --skip-generate
+npx prisma db push
 
 echo "→ Building NestJS…"
 npm run build
