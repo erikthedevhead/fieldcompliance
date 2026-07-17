@@ -11,8 +11,8 @@ import { formatDueDate } from "@/lib/utils";
  * Full deadline record with the joined regulation and version.
  * Matches what `GET /deadlines/:id` returns.
  */
-interface DeadlineDetail extends Deadline {
-  facility: Deadline["facility"] & {
+interface DeadlineDetail extends Omit<Deadline, "facility"> {
+  facility: {
     id: string;
     name: string;
     state: string;
