@@ -11,8 +11,14 @@ import { formatDueDate } from "@/lib/utils";
  * Full deadline record with the joined regulation and version.
  * Matches what `GET /deadlines/:id` returns.
  */
-interface DeadlineDetail extends Omit<Deadline, "facility" | "description"> {
+interface DeadlineDetail {
+  id: string;
+  ruleCode: string;
+  title: string;
   description: string | null;
+  dueDate: string;
+  status: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "OVERDUE" | "WAIVED";
+  assignedUser: { id: string; firstName: string; lastName: string } | null;
   facility: {
     id: string;
     name: string;
