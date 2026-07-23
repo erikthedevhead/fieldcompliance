@@ -199,7 +199,7 @@ export interface CreateEquipmentInput {
   model?: string
   serialNumber?: string
   installDate?: string
-  pneumaticType?: 'high-bleed' | 'low-bleed' | 'instrument'
+  pneumaticType?: 'CONTINUOUS_HIGH_BLEED' | 'INTERMITTENT_BLEED' | 'CONTINUOUS_LOW_BLEED'
   tankCapacityBbls?: number
   compressorHp?: number
   throughputMcfd?: number

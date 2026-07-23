@@ -515,7 +515,7 @@ async function main() {
       category: "PNEUMATIC_CONTROLLER",
       description: "High-bleed pneumatic level controller — separator",
       manufacturer: "Fisher",
-      pneumaticType: "high-bleed",
+      pneumaticType: "CONTINUOUS_HIGH_BLEED",
       installDate: new Date("2023-03-15"),
     },
   });
