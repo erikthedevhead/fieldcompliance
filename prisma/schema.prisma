@@ -47,6 +47,12 @@ enum EquipmentCategory {
   FUGITIVE_COMPONENT
 }
 
+enum PneumaticDeviceType {
+  CONTINUOUS_HIGH_BLEED
+  INTERMITTENT_BLEED
+  CONTINUOUS_LOW_BLEED
+}
+
 enum EmissionSource {
   VENTING
   FUGITIVE
@@ -212,7 +218,7 @@ model Equipment {
   isActive         Boolean           @default(true)
 
   // Emission-relevant attributes per equipment type
-  pneumaticType    String?           // high-bleed | low-bleed | instrument
+  pneumaticType    PneumaticDeviceType?
   tankCapacityBbls Decimal?          @db.Decimal(10, 2)
   compressorHp     Int?
   throughputMcfd   Decimal?          @db.Decimal(10, 2)

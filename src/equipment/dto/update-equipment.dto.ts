@@ -1,5 +1,14 @@
 import { IsString, IsOptional, IsInt, IsNumber, IsIn, IsDateString, MaxLength } from 'class-validator'
 
+// Matches EPA Subpart W's actual pneumatic device categories (Table W-2).
+// See create-equipment.dto.ts for the full explanation of why 'instrument'
+// was removed from this list.
+const PNEUMATIC_DEVICE_TYPES = [
+  'CONTINUOUS_HIGH_BLEED',
+  'INTERMITTENT_BLEED',
+  'CONTINUOUS_LOW_BLEED',
+] as const
+
 export class UpdateEquipmentDto {
   @IsOptional()
   @IsString()
@@ -27,8 +36,8 @@ export class UpdateEquipmentDto {
   lastServiceDate?: string
 
   @IsOptional()
-  @IsIn(['high-bleed', 'low-bleed', 'instrument'])
-  pneumaticType?: string
+  @IsIn(PNEUMATIC_DEVICE_TYPES)
+  pneumaticType?: (typeof PNEUMATIC_DEVICE_TYPES)[number]
 
   @IsOptional()
   @IsNumber()

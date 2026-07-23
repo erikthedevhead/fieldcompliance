@@ -144,7 +144,7 @@ describe('calculatePneumatic', () => {
     const result = calculatePneumatic({
       equipmentId: 'eq-1',
       equipmentTag: 'PC-101',
-      pneumaticType: 'high-bleed',
+      pneumaticType: 'CONTINUOUS_HIGH_BLEED',
       hoursOperated: HOURS_PER_YEAR,
       factor: pneumaticHighBleed,
     })
@@ -159,11 +159,11 @@ describe('calculatePneumatic', () => {
 
   test('low-bleed controller emits ~100× less than high-bleed', () => {
     const high = calculatePneumatic({
-      equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'high-bleed',
+      equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'CONTINUOUS_HIGH_BLEED',
       hoursOperated: HOURS_PER_YEAR, factor: pneumaticHighBleed,
     })
     const low = calculatePneumatic({
-      equipmentId: 'eq-2', equipmentTag: 'PC-102', pneumaticType: 'low-bleed',
+      equipmentId: 'eq-2', equipmentTag: 'PC-102', pneumaticType: 'CONTINUOUS_LOW_BLEED',
       hoursOperated: HOURS_PER_YEAR, factor: pneumaticLowBleed,
     })
 
@@ -173,11 +173,11 @@ describe('calculatePneumatic', () => {
 
   test('partial-period emissions scale linearly with hours', () => {
     const fullYear = calculatePneumatic({
-      equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'high-bleed',
+      equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'CONTINUOUS_HIGH_BLEED',
       hoursOperated: HOURS_PER_YEAR, factor: pneumaticHighBleed,
     })
     const halfYear = calculatePneumatic({
-      equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'high-bleed',
+      equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'CONTINUOUS_HIGH_BLEED',
       hoursOperated: HOURS_PER_YEAR / 2, factor: pneumaticHighBleed,
     })
 
@@ -187,7 +187,7 @@ describe('calculatePneumatic', () => {
   test('rejects wrong factor unit', () => {
     expect(() =>
       calculatePneumatic({
-        equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'high-bleed',
+        equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'CONTINUOUS_HIGH_BLEED',
         hoursOperated: 100,
         factor: { ...pneumaticHighBleed, factorUnit: 'lb-VOC/bbl' },
       }),

@@ -23,6 +23,17 @@ const CATEGORIES = [
   'FUGITIVE_COMPONENT',
 ] as const
 
+// Matches EPA Subpart W's actual pneumatic device categories (Table W-2).
+// Previously modeled as 'high-bleed' | 'low-bleed' | 'instrument' — the
+// third value was wrong: instrument air systems don't vent natural gas
+// and don't belong in this category at all. Corrected to the real 3
+// EPA-recognized device types.
+const PNEUMATIC_DEVICE_TYPES = [
+  'CONTINUOUS_HIGH_BLEED',
+  'INTERMITTENT_BLEED',
+  'CONTINUOUS_LOW_BLEED',
+] as const
+
 export class CreateEquipmentDto {
   @IsString()
   facilityId: string
@@ -56,8 +67,8 @@ export class CreateEquipmentDto {
   installDate?: string
 
   @IsOptional()
-  @IsIn(['high-bleed', 'low-bleed', 'instrument'])
-  pneumaticType?: string
+  @IsIn(PNEUMATIC_DEVICE_TYPES)
+  pneumaticType?: (typeof PNEUMATIC_DEVICE_TYPES)[number]
 
   @IsOptional()
   @IsNumber()
