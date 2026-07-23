@@ -18,7 +18,7 @@ git reset --hard origin/main
 echo "→ Installing dependencies…"
 # We install devDeps because we need @nestjs/cli + typescript to build.
 # The runtime container only reads from dist/ so this doesn't bloat prod memory.
-npm ci --silent
+npm ci --silent --include=dev
 
 echo "→ Pushing schema changes to database…"
 # For MVP we use db push. Once you have real customer data, switch to
