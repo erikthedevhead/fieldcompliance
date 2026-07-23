@@ -136,9 +136,13 @@ export function EquipmentForm({
         payload.throughputMcfd = Number(throughputMcfd);
       }
 
-      const saved = isEdit
-        ? await equipmentApi.update(equipment!.id, payload)
-        : await equipmentApi.create(payload);
+      let saved;
+      if (isEdit) {
+        const { facilityId: _f, category: _c, ...updatePayload } = payload;
+        saved = await equipmentApi.update(equipment!.id, updatePayload);
+      } else {
+        saved = await equipmentApi.create(payload);
+      }
       onSaved?.(saved);
       onClose();
     } catch (err) {
