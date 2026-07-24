@@ -10,8 +10,8 @@ export interface SendMailInput {
 }
 
 export interface SendMailResult {
-  sent: boolean
-  /** Populated when sent === false, explaining why. */
+  status: 'sent' | 'skipped_dry_run' | 'failed'
+  /** Populated for skipped_dry_run and failed, explaining why. */
   reason?: string
 }
 
@@ -20,8 +20,10 @@ export interface SendMailResult {
  *
  * Degrades gracefully: if SENDGRID_API_KEY isn't set (local dev, or a
  * deployment where email isn't wired up yet), it logs what *would* have
- * been sent and reports sent: false rather than throwing. That keeps the
- * alert cron from crashing a deployment just because email isn't configured.
+ * been sent and reports status: 'skipped_dry_run' rather than throwing.
+ * That keeps the alert cron from crashing a deployment just because email
+ * isn't configured — and, critically, keeps "not configured" distinct
+ * from "genuinely failed to send," so callers can tell the difference.
  */
 @Injectable()
 export class MailService {
@@ -49,7 +51,7 @@ export class MailService {
       this.logger.log(
         `[DRY RUN] Would send to ${input.to}: "${input.subject}"`,
       )
-      return { sent: false, reason: 'SENDGRID_API_KEY not configured' }
+      return { status: 'skipped_dry_run', reason: 'SENDGRID_API_KEY not configured' }
     }
 
     try {
@@ -60,7 +62,7 @@ export class MailService {
         text: input.text,
         html: input.html,
       })
-      return { sent: true }
+      return { status: 'sent' }
     } catch (err) {
       // SendGrid errors carry useful detail in response.body — surface it
       const detail =
@@ -69,7 +71,7 @@ export class MailService {
           .join('; ') ?? (err instanceof Error ? err.message : String(err))
 
       this.logger.error(`Failed sending to ${input.to}: ${detail}`)
-      return { sent: false, reason: detail }
+      return { status: 'failed', reason: detail }
     }
   }
 }

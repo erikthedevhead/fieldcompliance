@@ -16,12 +16,15 @@ export class AlertsController {
   @HttpCode(HttpStatus.OK)
   async send(@CurrentUser() user: any) {
     const result = await this.alerts.sendAlertsForOrg(user.orgId)
+
+    const nothingDue = result.sent === 0 && result.dryRun === 0 && result.failed === 0
+
     return {
       ...result,
-      message:
-        result.sent === 0 && result.failed === 0
-          ? 'No alerts were due. Deadlines only alert once per threshold (30/7/1/0 days).'
-          : `${result.sent} alert(s) sent, ${result.failed} failed.`,
+      message: nothingDue
+        ? 'No alerts were due. Deadlines only alert once per threshold (30/7/1/0 days).'
+        : `${result.sent} sent, ${result.dryRun} dry-run (SendGrid not configured), ` +
+          `${result.failed} genuinely failed.`,
     }
   }
 }

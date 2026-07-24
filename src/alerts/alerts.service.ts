@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule'
 import { ConfigService } from '@nestjs/config'
 
 import { PrismaService } from '../prisma/prisma.service'
-import { MailService } from '../mail/mail.service'
+import { MailService, SendMailResult } from '../mail/mail.service'
 import { renderDeadlineAlert } from '../mail/templates/deadline-alert.template'
 
 /**
@@ -11,9 +11,8 @@ import { renderDeadlineAlert } from '../mail/templates/deadline-alert.template'
  * one email per threshold — crossing 7 days doesn't re-send the 30-day
  * notice.
  *
- * 0 = due today. Negative values would be "overdue" reminders, which we
- * deliberately don't send repeatedly (see runOverdueSweep below for the
- * once-only overdue notice).
+ * 0 = due today. Negative values map to the overdue marker, which fires
+ * once (see matchThreshold below) rather than repeating daily.
  */
 const ALERT_THRESHOLDS = [30, 7, 1, 0] as const
 
@@ -35,6 +34,14 @@ interface PendingAlert {
   daysUntilDue: number
   regulationLabel?: string
   assigneeName?: string
+}
+
+export interface AlertSweepResult {
+  sent: number
+  /** Would have sent, but SENDGRID_API_KEY isn't configured — not a failure. */
+  dryRun: number
+  /** Actually attempted and rejected by SendGrid — a real problem. */
+  failed: number
 }
 
 @Injectable()
@@ -68,12 +75,14 @@ export class AlertsService {
     )
 
     let totalSent = 0
+    let totalDryRun = 0
     let totalFailed = 0
 
     for (const org of orgs) {
       try {
-        const { sent, failed } = await this.sendAlertsForOrg(org.id)
+        const { sent, dryRun, failed } = await this.sendAlertsForOrg(org.id)
         totalSent += sent
+        totalDryRun += dryRun
         totalFailed += failed
       } catch (err) {
         this.logger.error(
@@ -84,9 +93,15 @@ export class AlertsService {
     }
 
     this.logger.log(
-      `Alert sweep complete: ${totalSent} sent, ${totalFailed} failed, across ${orgs.length} orgs`,
+      `Alert sweep complete: ${totalSent} sent, ${totalDryRun} dry-run, ` +
+        `${totalFailed} failed, across ${orgs.length} orgs`,
     )
-    return { orgsProcessed: orgs.length, sent: totalSent, failed: totalFailed }
+    return {
+      orgsProcessed: orgs.length,
+      sent: totalSent,
+      dryRun: totalDryRun,
+      failed: totalFailed,
+    }
   }
 
   /**
@@ -98,14 +113,14 @@ export class AlertsService {
    *   2. Send (no transaction) — hit SendGrid
    *   3. Record (inside asOrg) — write DeadlineAlert rows
    */
-  async sendAlertsForOrg(orgId: string): Promise<{ sent: number; failed: number }> {
+  async sendAlertsForOrg(orgId: string): Promise<AlertSweepResult> {
     const pending = await this.collectPendingAlerts(orgId)
 
     if (pending.length === 0) {
-      return { sent: 0, failed: 0 }
+      return { sent: 0, dryRun: 0, failed: 0 }
     }
 
-    const results: Array<{ alert: PendingAlert; sent: boolean }> = []
+    const results: Array<{ alert: PendingAlert; result: SendMailResult }> = []
 
     for (const alert of pending) {
       const email = renderDeadlineAlert({
@@ -128,16 +143,18 @@ export class AlertsService {
         text: email.text,
       })
 
-      results.push({ alert, sent: result.sent })
+      results.push({ alert, result })
     }
 
     await this.recordAlerts(orgId, results)
 
-    const sent = results.filter(r => r.sent).length
-    const failed = results.length - sent
-    this.logger.log(`Org ${orgId}: ${sent} alert(s) sent, ${failed} failed`)
+    const sent = results.filter(r => r.result.status === 'sent').length
+    const dryRun = results.filter(r => r.result.status === 'skipped_dry_run').length
+    const failed = results.filter(r => r.result.status === 'failed').length
 
-    return { sent, failed }
+    this.logger.log(`Org ${orgId}: ${sent} sent, ${dryRun} dry-run, ${failed} failed`)
+
+    return { sent, dryRun, failed }
   }
 
   // ============================================================
@@ -239,20 +256,21 @@ export class AlertsService {
 
   private async recordAlerts(
     orgId: string,
-    results: Array<{ alert: PendingAlert; sent: boolean }>,
+    results: Array<{ alert: PendingAlert; result: SendMailResult }>,
   ): Promise<void> {
     if (results.length === 0) return
 
     await this.prisma.asOrg(orgId, async tx => {
       const now = new Date()
-      for (const { alert, sent } of results) {
+      for (const { alert, result } of results) {
         await tx.deadlineAlert.create({
           data: {
             deadlineId: alert.deadlineId,
             alertType: alertTypeFor(alert.threshold),
             scheduledAt: now,
-            // sentAt stays null on failure, so a later sweep can retry
-            sentAt: sent ? now : null,
+            // sentAt stays null for both dry-run and failed, so a later
+            // sweep with real SendGrid config (or a fixed error) can retry
+            sentAt: result.status === 'sent' ? now : null,
             recipient: alert.recipientEmail,
             channel: 'sendgrid',
           },
