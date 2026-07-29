@@ -438,7 +438,12 @@ async function main() {
   // SAMPLE ORG + USER
   // ============================================================
 
-  const sampleOrg = await prisma.organization.upsert({
+  await prisma.$transaction(async (tx) => {
+    // RLS is enforced on every tenant table. Without this line, every
+    // write below silently affects 0 rows instead of throwing.
+    await tx.$executeRaw`SELECT set_config('app.system_mode', 'on', true)`;
+
+  const sampleOrg = await tx.organization.upsert({
     where: { slug: "lone-star-e-and-p" },
     update: {},
     create: {
@@ -451,8 +456,9 @@ async function main() {
     },
   });
 
-  const adminPasswordHash = await bcrypt.hash("Localdev123!", 12);
-  const adminUser = await prisma.user.upsert({
+  const seedPassword = process.env.SEED_ADMIN_PASSWORD || "Localdev123!";
+  const adminPasswordHash = await bcrypt.hash(seedPassword, 12);
+  const adminUser = await tx.user.upsert({
     where: { email: "admin@lonestarep.example.com" },
     update: { passwordHash: adminPasswordHash },
     create: {
@@ -465,7 +471,7 @@ async function main() {
     },
   });
 
-  await prisma.orgRegulation.upsert({
+  await tx.orgRegulation.upsert({
     where: {
       orgId_regulationId: { orgId: sampleOrg.id, regulationId: subpartW.id },
     },
@@ -477,7 +483,7 @@ async function main() {
     },
   });
 
-  await prisma.orgRegulation.upsert({
+  await tx.orgRegulation.upsert({
     where: {
       orgId_regulationId: { orgId: sampleOrg.id, regulationId: oooob.id },
     },
@@ -489,7 +495,7 @@ async function main() {
     },
   });
 
-  const facility1 = await prisma.facility.upsert({
+  const facility1 = await tx.facility.upsert({
     where: { id: "fac-sample-001" },
     update: {},
     create: {
@@ -506,7 +512,7 @@ async function main() {
     },
   });
 
-  await prisma.equipment.upsert({
+  await tx.equipment.upsert({
     where: { facilityId_tag: { facilityId: facility1.id, tag: "PC-101" } },
     update: {},
     create: {
@@ -520,7 +526,7 @@ async function main() {
     },
   });
 
-  await prisma.equipment.upsert({
+  await tx.equipment.upsert({
     where: { facilityId_tag: { facilityId: facility1.id, tag: "ST-101" } },
     update: {},
     create: {
@@ -533,7 +539,7 @@ async function main() {
     },
   });
 
-  await prisma.equipment.upsert({
+  await tx.equipment.upsert({
     where: { facilityId_tag: { facilityId: facility1.id, tag: "SEP-101" } },
     update: {},
     create: {
@@ -546,7 +552,7 @@ async function main() {
   });
 
   const nextMarch31 = new Date(new Date().getFullYear() + 1, 2, 31);
-  await prisma.deadline.upsert({
+  await tx.deadline.upsert({
     where: { id: "deadline-sample-001" },
     update: {},
     create: {
@@ -564,6 +570,7 @@ async function main() {
       status: "PENDING",
       assignedUserId: adminUser.id,
     },
+  });
   });
 
   console.log("  ✓ Sample org, facilities, equipment, and deadline created");
