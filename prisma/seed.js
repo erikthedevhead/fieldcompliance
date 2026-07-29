@@ -438,12 +438,13 @@ async function main() {
   // SAMPLE ORG + USER
   // ============================================================
 
+  let sampleOrg, adminUser;
   await prisma.$transaction(async (tx) => {
     // RLS is enforced on every tenant table. Without this line, every
     // write below silently affects 0 rows instead of throwing.
     await tx.$executeRaw`SELECT set_config('app.system_mode', 'on', true)`;
 
-  const sampleOrg = await tx.organization.upsert({
+  sampleOrg = await tx.organization.upsert({
     where: { slug: "lone-star-e-and-p" },
     update: {},
     create: {
@@ -458,7 +459,7 @@ async function main() {
 
   const seedPassword = process.env.SEED_ADMIN_PASSWORD || "Localdev123!";
   const adminPasswordHash = await bcrypt.hash(seedPassword, 12);
-  const adminUser = await tx.user.upsert({
+  adminUser = await tx.user.upsert({
     where: { email: "admin@lonestarep.example.com" },
     update: { passwordHash: adminPasswordHash },
     create: {
