@@ -2,19 +2,15 @@
 // FieldCompliance — Prisma Schema
 // Multi-tenant oilfield environmental compliance platform
 // ============================================================
-
 generator client {
   provider = "prisma-client-js"
 }
-
 datasource db {
   provider = "postgresql"
 }
-
 // ============================================================
 // ENUMS
 // ============================================================
-
 enum UserRole {
   ORG_ADMIN        // manages billing, users, all facilities
   EHS_COORDINATOR  // full data entry + report generation
@@ -22,7 +18,6 @@ enum UserRole {
   FIELD_TECH       // mobile entry only
   AUDITOR          // read-only across org
 }
-
 enum FacilityType {
   PRODUCTION_WELL
   INJECTION_WELL
@@ -32,7 +27,6 @@ enum FacilityType {
   STORAGE_TANK_BATTERY
   MIDSTREAM_FACILITY
 }
-
 enum EquipmentCategory {
   PNEUMATIC_CONTROLLER
   PNEUMATIC_PUMP
@@ -46,13 +40,11 @@ enum EquipmentCategory {
   WELLHEAD
   FUGITIVE_COMPONENT
 }
-
 enum PneumaticDeviceType {
   CONTINUOUS_HIGH_BLEED
   INTERMITTENT_BLEED
   CONTINUOUS_LOW_BLEED
 }
-
 enum EmissionSource {
   VENTING
   FUGITIVE
@@ -60,7 +52,6 @@ enum EmissionSource {
   FLARING
   PROCESS_UPSET
 }
-
 enum RegulationJurisdiction {
   FEDERAL_EPA
   TEXAS_TCEQ
@@ -70,7 +61,6 @@ enum RegulationJurisdiction {
   WYOMING_DEQ
   NORTH_DAKOTA_DEH
 }
-
 enum ReportStatus {
   DRAFT
   IN_REVIEW
@@ -79,7 +69,6 @@ enum ReportStatus {
   REJECTED
   AMENDED
 }
-
 enum DeadlineStatus {
   PENDING
   IN_PROGRESS
@@ -87,7 +76,6 @@ enum DeadlineStatus {
   OVERDUE
   WAIVED
 }
-
 enum AuditAction {
   CREATE
   UPDATE
@@ -97,11 +85,9 @@ enum AuditAction {
   LOGIN
   PERMISSION_CHANGE
 }
-
 // ============================================================
 // MULTI-TENANCY — Organizations
 // ============================================================
-
 model Organization {
   id               String    @id @default(cuid())
   name             String
@@ -117,21 +103,17 @@ model Organization {
   isActive         Boolean   @default(true)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
-
   users            User[]
   facilities       Facility[]
   regulations      OrgRegulation[]
   reports          ComplianceReport[]
   auditLogs        AuditLog[]
   apiKeys          ApiKey[]
-
   @@index([slug])
 }
-
 // ============================================================
 // USERS
 // ============================================================
-
 model User {
   id                String    @id @default(cuid())
   orgId             String
@@ -147,32 +129,25 @@ model User {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
   passwordHash      String?
-
   org               Organization    @relation(fields: [orgId], references: [id])
   facilityAccess    UserFacility[]
   auditLogs         AuditLog[]
   inspections       Inspection[]
   assignedDeadlines Deadline[]
-
   @@index([orgId])
   @@index([email])
 }
-
 model UserFacility {
   userId      String
   facilityId  String
   grantedAt   DateTime @default(now())
-
   user        User     @relation(fields: [userId], references: [id])
   facility    Facility @relation(fields: [facilityId], references: [id])
-
   @@id([userId, facilityId])
 }
-
 // ============================================================
 // FACILITIES & EQUIPMENT
 // ============================================================
-
 model Facility {
   id                String       @id @default(cuid())
   orgId             String
@@ -184,13 +159,20 @@ model Facility {
   latitude          Decimal?     @db.Decimal(10, 7)
   longitude         Decimal?     @db.Decimal(10, 7)
   legalDescription  String?
+  /// CH4 mole fraction of produced gas, 0–1. §98.233(u)(2) requires
+  /// facility-specific composition for Subpart W calcs. Null → the
+  /// calculator falls back to DEFAULT_CH4_MOLE_FRACTION (units.ts) and
+  /// stamps assumedComposition: true into the record's activityData.
+  ch4MoleFraction   Decimal?     @db.Decimal(5, 4)
+  /// CO2 mole fraction of produced gas, 0–1. Reserved for the vented-CO2
+  /// leg of Eq. W-1B (not yet calculated by the orchestrator).
+  co2MoleFraction   Decimal?     @db.Decimal(5, 4)
   operatorId        String?
   isActive          Boolean      @default(true)
   commissionedAt    DateTime?
   decommissionedAt  DateTime?
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
-
   org               Organization     @relation(fields: [orgId], references: [id])
   equipment         Equipment[]
   userAccess        UserFacility[]
@@ -198,12 +180,10 @@ model Facility {
   deadlines         Deadline[]
   emissionRecords   EmissionRecord[]
   reports           ComplianceReport[]
-
   @@index([orgId])
   @@index([state])
   @@index([orgId, isActive])
 }
-
 model Equipment {
   id               String            @id @default(cuid())
   facilityId       String
@@ -216,29 +196,23 @@ model Equipment {
   installDate      DateTime?
   lastServiceDate  DateTime?
   isActive         Boolean           @default(true)
-
   // Emission-relevant attributes per equipment type
   pneumaticType    PneumaticDeviceType?
   tankCapacityBbls Decimal?          @db.Decimal(10, 2)
   compressorHp     Int?
   throughputMcfd   Decimal?          @db.Decimal(10, 2)
-
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
-
   facility         Facility          @relation(fields: [facilityId], references: [id])
   emissionRecords  EmissionRecord[]
   inspections      Inspection[]
-
   @@index([facilityId])
   @@index([facilityId, category])
   @@unique([facilityId, tag])
 }
-
 // ============================================================
 // REGULATIONS — Versioned rules engine
 // ============================================================
-
 model Regulation {
   id                 String                 @id @default(cuid())
   code               String                 @unique
@@ -248,13 +222,10 @@ model Regulation {
   federalRegisterUrl String?
   description        String?
   isActive           Boolean                @default(true)
-
   versions           RegulationVersion[]
   orgRegulations     OrgRegulation[]
-
   @@index([jurisdiction])
 }
-
 model RegulationVersion {
   id            String    @id @default(cuid())
   regulationId  String
@@ -264,14 +235,11 @@ model RegulationVersion {
   changeNotes   String?
   rawJsonSchema Json
   createdAt     DateTime  @default(now())
-
   regulation    Regulation       @relation(fields: [regulationId], references: [id])
   requirements  RegulationRule[]
   deadlines     Deadline[]
-
   @@index([regulationId, effectiveDate])
 }
-
 model RegulationRule {
   id                  String             @id @default(cuid())
   regulationVersionId String
@@ -287,30 +255,23 @@ model RegulationRule {
   deadlineOffsetDays  Int?
   penaltyPerDay       Decimal?           @db.Decimal(10, 2)
   notes               String?
-
   regulationVersion   RegulationVersion  @relation(fields: [regulationVersionId], references: [id])
-
   @@index([regulationVersionId])
   @@index([equipmentCategory])
 }
-
 model OrgRegulation {
   orgId        String
   regulationId String
   enrolledAt   DateTime @default(now())
   enrolledBy   String?
   notes        String?
-
   org          Organization @relation(fields: [orgId], references: [id])
   regulation   Regulation   @relation(fields: [regulationId], references: [id])
-
   @@id([orgId, regulationId])
 }
-
 // ============================================================
 // DEADLINES — Core daily-use feature
 // ============================================================
-
 model Deadline {
   id                  String         @id @default(cuid())
   orgId               String
@@ -329,17 +290,14 @@ model Deadline {
   notes               String?
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
-
   facility          Facility          @relation(fields: [facilityId], references: [id])
   regulationVersion RegulationVersion @relation(fields: [regulationVersionId], references: [id])
   assignedUser      User?             @relation(fields: [assignedUserId], references: [id])
   alerts            DeadlineAlert[]
-
   @@index([orgId, status])
   @@index([orgId, dueDate])
   @@index([facilityId])
 }
-
 model DeadlineAlert {
   id          String    @id @default(cuid())
   deadlineId  String
@@ -348,17 +306,13 @@ model DeadlineAlert {
   sentAt      DateTime?
   recipient   String
   channel     String    // sendgrid | twilio | internal
-
   deadline    Deadline  @relation(fields: [deadlineId], references: [id])
-
   @@index([deadlineId])
   @@index([scheduledAt, sentAt])
 }
-
 // ============================================================
 // INSPECTIONS — Offline-capable field data entry
 // ============================================================
-
 model Inspection {
   id                String    @id @default(cuid())
   facilityId        String
@@ -379,19 +333,15 @@ model Inspection {
   syncedAt          DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
-
   facility          Facility   @relation(fields: [facilityId], references: [id])
   equipment         Equipment? @relation(fields: [equipmentId], references: [id])
   inspector         User       @relation(fields: [inspectorId], references: [id])
-
   @@index([facilityId, conductedAt])
   @@index([inspectorId])
 }
-
 // ============================================================
 // EMISSIONS — Calculated records
 // ============================================================
-
 model EmissionRecord {
   id                   String         @id @default(cuid())
   facilityId           String
@@ -411,37 +361,34 @@ model EmissionRecord {
   notes                String?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
-
   facility             Facility        @relation(fields: [facilityId], references: [id])
   equipment            Equipment?      @relation(fields: [equipmentId], references: [id])
   emissionFactor       EmissionFactor? @relation(fields: [emissionFactorId], references: [id])
-
   @@index([facilityId, reportingPeriodStart])
   @@index([facilityId, pollutant])
 }
-
 // EPA-approved emission factors — seeded from AP-42, OOOOb, Subpart W tables
 model EmissionFactor {
   id                  String            @id @default(cuid())
   source              String            // AP42 | OOOOb | SUBPART_W | SITE_SPECIFIC
   equipmentCategory   EquipmentCategory
   pollutant           String
+  /// Variant discriminator within an equipmentCategory — e.g. a
+  /// PneumaticDeviceType value for PNEUMATIC_CONTROLLER factors.
+  /// Replaces the old notes-string matching in lookupFactor().
+  subType             String?
   factorValue         Decimal           @db.Decimal(14, 6)
-  factorUnit          String            // scf-CH4/hr | tpy/unit | lb/MMscf
+  factorUnit          String            // scf-whole-gas/hr | tpy/unit | lb/MMscf
   applicableFrom      DateTime
   applicableUntil     DateTime?
   notes               String?
   federalRegCitation  String?
-
   emissionRecords     EmissionRecord[]
-
-  @@index([equipmentCategory, pollutant])
+  @@index([equipmentCategory, pollutant, subType])
 }
-
 // ============================================================
 // REPORTS — Generated compliance submissions
 // ============================================================
-
 model ComplianceReport {
   id                  String       @id @default(cuid())
   orgId               String
@@ -460,18 +407,14 @@ model ComplianceReport {
   reviewNotes         String?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
-
   org                 Organization @relation(fields: [orgId], references: [id])
   facility            Facility?    @relation(fields: [facilityId], references: [id])
-
   @@index([orgId, reportingYear])
   @@index([orgId, status])
 }
-
 // ============================================================
 // AUDIT LOG — Immutable, append-only
 // ============================================================
-
 model AuditLog {
   id          String      @id @default(cuid())
   orgId       String
@@ -485,19 +428,15 @@ model AuditLog {
   userAgent   String?
   metadata    Json?
   createdAt   DateTime    @default(now())
-
   org         Organization @relation(fields: [orgId], references: [id])
   user        User?        @relation(fields: [userId], references: [id])
-
   @@index([orgId, createdAt])
   @@index([entityType, entityId])
   @@index([userId, createdAt])
 }
-
 // ============================================================
 // API KEYS — Consultant / third-party access
 // ============================================================
-
 model ApiKey {
   id         String    @id @default(cuid())
   orgId      String
@@ -509,8 +448,6 @@ model ApiKey {
   expiresAt  DateTime?
   isActive   Boolean   @default(true)
   createdAt  DateTime  @default(now())
-
   org        Organization @relation(fields: [orgId], references: [id])
-
   @@index([orgId])
 }

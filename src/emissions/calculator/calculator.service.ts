@@ -20,7 +20,11 @@ import {
   MethodologyResult,
   ActivityDataOverrides,
 } from "./types";
-import { hoursBetween, fractionOfYear } from "./units";
+import {
+  hoursBetween,
+  fractionOfYear,
+  DEFAULT_CH4_MOLE_FRACTION,
+} from "./units";
 import { calculatePneumatic } from "./methodologies/pneumatic";
 import { calculateStorageTank } from "./methodologies/storage-tank";
 import { calculateCompressor } from "./methodologies/compressor";
@@ -59,6 +63,22 @@ export class CalculatorService {
       const overrides = input.activityData ?? {};
 
       // ---- Pneumatic controllers ----
+      // §98.233(u)(2): gas composition is facility-specific. Fall back to
+      // the platform default only when no gas analysis is on file, and
+      // flag the assumption so it shows in the provenance chain.
+      const ch4Fraction =
+        facility.ch4MoleFraction != null
+          ? Number(facility.ch4MoleFraction)
+          : DEFAULT_CH4_MOLE_FRACTION;
+      const compositionAssumed = facility.ch4MoleFraction == null;
+      if (compositionAssumed) {
+        this.logger.warn(
+          `Facility ${facility.id} has no ch4MoleFraction on file — ` +
+            `using platform default ${DEFAULT_CH4_MOLE_FRACTION}. ` +
+            `Provide a facility gas analysis for Subpart W fidelity.`,
+        );
+      }
+
       const pneumatics = facility.equipment.filter(
         (e) => e.category === "PNEUMATIC_CONTROLLER",
       );
@@ -77,6 +97,8 @@ export class CalculatorService {
             equipmentTag: pc.tag,
             pneumaticType: pc.pneumaticType,
             hoursOperated: hours,
+            ch4MoleFraction: ch4Fraction,
+            isCompositionAssumed: compositionAssumed,
             factor,
           }),
         );
@@ -206,15 +228,26 @@ export class CalculatorService {
   // ============================================================
 
   /**
-   * Look up the active emission factor for a given equipment category and pollutant.
-   * EmissionFactor is a global reference table — not RLS scoped, but we still
-   * accept a `tx` client so it participates in the caller's transaction.
+   * Look up the active emission factor for a given equipment category,
+   * pollutant, and (optionally) subType variant.
+   *
+   * subType semantics:
+   *   - undefined → category has no variants; match any subType.
+   *   - null / value → exact match on subType. An equipment row with an
+   *     unspecified variant (e.g. pneumaticType null) therefore finds NO
+   *     factor and is skipped with a warning — a compliance calculation
+   *     must never guess which device type it's looking at. (Previously
+   *     this fell back to notes-string matching and then factors[0].)
+   *
+   * EmissionFactor is a global reference table — not RLS scoped, but we
+   * still accept a `tx` client so it participates in the caller's
+   * transaction.
    */
   private async lookupFactor(
     tx: any,
     equipmentCategory: string,
     pollutant: string,
-    pneumaticType?: string | null,
+    subType?: string | null,
   ): Promise<{
     id: string;
     factorValue: number;
@@ -225,6 +258,7 @@ export class CalculatorService {
       where: {
         equipmentCategory: equipmentCategory as any,
         pollutant,
+        ...(subType !== undefined ? { subType } : {}),
         applicableFrom: { lte: new Date() },
         OR: [
           { applicableUntil: null },
@@ -236,31 +270,13 @@ export class CalculatorService {
 
     if (factors.length === 0) {
       this.logger.warn(
-        `No emission factor found for ${equipmentCategory}/${pollutant}`,
+        `No active emission factor for ${equipmentCategory}/${pollutant}` +
+          (subType !== undefined ? `/${subType ?? "NULL"}` : ""),
       );
       return null;
     }
 
-    let chosen = factors[0];
-
-    if (equipmentCategory === "PNEUMATIC_CONTROLLER" && factors.length > 1) {
-      if (pneumaticType === "CONTINUOUS_HIGH_BLEED") {
-        chosen =
-          factors.find((f: any) =>
-            f.notes?.toLowerCase().includes("high-bleed"),
-          ) ?? chosen;
-      } else if (pneumaticType === "INTERMITTENT_BLEED") {
-        chosen =
-          factors.find((f: any) =>
-            f.notes?.toLowerCase().includes("intermittent"),
-          ) ?? chosen;
-      } else {
-        chosen =
-          factors.find((f: any) =>
-            f.notes?.toLowerCase().includes("low-bleed"),
-          ) ?? chosen;
-      }
-    }
+    const chosen = factors[0];
     return {
       id: chosen.id,
       factorValue: Number(chosen.factorValue),

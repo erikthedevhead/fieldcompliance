@@ -346,32 +346,87 @@ async function main() {
   // ============================================================
   // EMISSION FACTORS
   // ============================================================
+  //
+  // 2026-07-29 CORRECTION: the original ef-seed-0 (high bleed, 0.174
+  // "scf-CH4/hr") and ef-seed-1 (low bleed, 0.0017 "scf-CH4/hr") were
+  // fabricated — they never matched any EPA table (current Table W-1,
+  // pre-2024 Table W-1A, or AP-42). They are EXPIRED below (not deleted
+  // or mutated: EmissionRecord.emissionFactorId may reference them, and
+  // the provenance chain must keep showing what was actually used) and
+  // replaced by the ef-w1-* rows verified against the current eCFR text
+  // of Table W-1 to Subpart W (89 FR 42323, May 14 2024).
+
+  await prisma.emissionFactor.updateMany({
+    where: { id: { in: ["ef-seed-0", "ef-seed-1"] }, applicableUntil: null },
+    data: { applicableUntil: new Date("2026-07-29T00:00:00Z") },
+  });
+
+  const W1_CITATION = "40 CFR Part 98 Table W-1 (89 FR 42323)";
+  const W1_NOTE_SUFFIX =
+    "onshore production / gathering & boosting. WHOLE GAS factor — " +
+    "multiply by facility CH4 mole fraction per Eq. W-1B.";
 
   const emissionFactors = [
+    // ---- Subpart W Table W-1 pneumatic factors (verified 2026-07-29) ----
     {
-      source: "AP42",
+      id: "ef-w1-high-bleed",
+      source: "SUBPART_W",
       equipmentCategory: "PNEUMATIC_CONTROLLER",
       pollutant: "CH4",
-      factorValue: 0.174,
-      factorUnit: "scf-CH4/hr",
-      applicableFrom: new Date("2014-01-01"),
-      notes: "High-bleed pneumatic controller. AP-42 Table 4.3-1.",
-      federalRegCitation: "40 CFR Part 98 Table W-2",
+      subType: "CONTINUOUS_HIGH_BLEED",
+      factorValue: 21,
+      factorUnit: "scf-whole-gas/hr",
+      applicableFrom: new Date("2025-01-01"),
+      notes: `Continuous high bleed pneumatic device vents, ${W1_NOTE_SUFFIX}`,
+      federalRegCitation: W1_CITATION,
     },
     {
-      source: "AP42",
+      id: "ef-w1-low-bleed",
+      source: "SUBPART_W",
       equipmentCategory: "PNEUMATIC_CONTROLLER",
       pollutant: "CH4",
-      factorValue: 0.0017,
-      factorUnit: "scf-CH4/hr",
-      applicableFrom: new Date("2014-01-01"),
-      notes: "Low-bleed pneumatic controller (≤6 scf/hr). AP-42 Table 4.3-1.",
-      federalRegCitation: "40 CFR Part 98 Table W-2",
+      subType: "CONTINUOUS_LOW_BLEED",
+      factorValue: 6.8,
+      factorUnit: "scf-whole-gas/hr",
+      applicableFrom: new Date("2025-01-01"),
+      notes: `Continuous low bleed pneumatic device vents, ${W1_NOTE_SUFFIX}`,
+      federalRegCitation: W1_CITATION,
     },
     {
+      id: "ef-w1-intermittent",
+      source: "SUBPART_W",
+      equipmentCategory: "PNEUMATIC_CONTROLLER",
+      pollutant: "CH4",
+      subType: "INTERMITTENT_BLEED",
+      factorValue: 8.8,
+      factorUnit: "scf-whole-gas/hr",
+      applicableFrom: new Date("2025-01-01"),
+      notes: `Intermittent bleed pneumatic device vents, ${W1_NOTE_SUFFIX}`,
+      federalRegCitation: W1_CITATION,
+    },
+    {
+      id: "ef-w1-pneumatic-pump",
+      source: "SUBPART_W",
+      equipmentCategory: "PNEUMATIC_PUMP",
+      pollutant: "CH4",
+      subType: null,
+      factorValue: 13.3,
+      factorUnit: "scf-whole-gas/hr",
+      applicableFrom: new Date("2025-01-01"),
+      notes:
+        `Natural gas driven pneumatic pumps, ${W1_NOTE_SUFFIX} ` +
+        "NOTE: calculator.service.ts does not yet dispatch PNEUMATIC_PUMP " +
+        "equipment — seeded ahead of that feature.",
+      federalRegCitation: W1_CITATION,
+    },
+    // ---- Legacy factors (unchanged values; explicit ids keep them ----
+    // ---- stable now that the upsert loop actively updates rows)    ----
+    {
+      id: "ef-seed-2",
       source: "AP42",
       equipmentCategory: "FUGITIVE_COMPONENT",
       pollutant: "CH4",
+      subType: null,
       factorValue: 0.00004,
       factorUnit: "tpy-CH4/component",
       applicableFrom: new Date("2014-01-01"),
@@ -380,9 +435,11 @@ async function main() {
       federalRegCitation: "40 CFR Part 98 Table W-4",
     },
     {
+      id: "ef-seed-3",
       source: "AP42",
       equipmentCategory: "COMPRESSOR_RECIPROCATING",
       pollutant: "CH4",
+      subType: null,
       factorValue: 0.00228,
       factorUnit: "scf-CH4/hr/cylinder",
       applicableFrom: new Date("2014-01-01"),
@@ -391,9 +448,11 @@ async function main() {
       federalRegCitation: "40 CFR Part 98 Table W-7",
     },
     {
+      id: "ef-seed-4",
       source: "AP42",
       equipmentCategory: "DEHYDRATOR_GLYCOL",
       pollutant: "CH4",
+      subType: null,
       factorValue: 33.5,
       factorUnit: "scf-CH4/hr",
       applicableFrom: new Date("2014-01-01"),
@@ -401,9 +460,11 @@ async function main() {
       federalRegCitation: "40 CFR Part 98 Table W-9",
     },
     {
+      id: "ef-seed-5",
       source: "AP42",
       equipmentCategory: "STORAGE_TANK",
       pollutant: "VOC",
+      subType: null,
       factorValue: 1.86,
       factorUnit: "lb-VOC/bbl",
       applicableFrom: new Date("2014-01-01"),
@@ -412,9 +473,11 @@ async function main() {
       federalRegCitation: "40 CFR Part 98 Table W-10",
     },
     {
+      id: "ef-seed-6",
       source: "OOOOb",
       equipmentCategory: "WELLHEAD",
       pollutant: "CH4",
+      subType: null,
       factorValue: 5500,
       factorUnit: "scf-CH4/completion",
       applicableFrom: new Date("2024-11-01"),
@@ -424,15 +487,21 @@ async function main() {
     },
   ];
 
-  for (let i = 0; i < emissionFactors.length; i++) {
+  // Corrective upsert: `update` carries the full payload so re-running the
+  // seed FIXES drifted rows instead of silently skipping them (the old
+  // loop used `update: {}` — which is why re-seeding never corrected the
+  // fabricated values in existing databases).
+  for (const { id, ...data } of emissionFactors) {
     await prisma.emissionFactor.upsert({
-      where: { id: `ef-seed-${i}` },
-      update: {},
-      create: { id: `ef-seed-${i}`, ...emissionFactors[i] },
+      where: { id },
+      update: data,
+      create: { id, ...data },
     });
   }
 
-  console.log("  ✓ Emission factors seeded (AP-42 + OOOOb)");
+  console.log(
+    "  ✓ Emission factors seeded (Subpart W Table W-1 + AP-42 + OOOOb; fabricated rows expired)",
+  );
 
   // ============================================================
   // SAMPLE ORG + USER
@@ -496,9 +565,14 @@ async function main() {
     },
   });
 
+  // Gas composition is set in BOTH update and create so re-seeding an
+  // existing dev database backfills the new §98.233(u)(2) fields.
   const facility1 = await tx.facility.upsert({
     where: { id: "fac-sample-001" },
-    update: {},
+    update: {
+      ch4MoleFraction: 0.85,
+      co2MoleFraction: 0.02,
+    },
     create: {
       id: "fac-sample-001",
       orgId: sampleOrg.id,
@@ -510,6 +584,8 @@ async function main() {
       latitude: 31.9974,
       longitude: -102.0779,
       commissionedAt: new Date("2023-03-15"),
+      ch4MoleFraction: 0.85,
+      co2MoleFraction: 0.02,
     },
   });
 

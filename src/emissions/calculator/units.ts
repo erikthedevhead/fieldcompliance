@@ -7,22 +7,31 @@
  *
  * References:
  *   - 40 CFR Part 98 Subpart A — Table A-1 (Global Warming Potentials)
- *   - 40 CFR Part 98 Subpart W — Tables W-2 through W-10 (emission factors)
+ *   - 40 CFR Part 98 Subpart W — Table W-1 (population emission factors),
+ *     §98.233(v) (volumetric → mass conversion densities)
  *   - AP-42, 5th Edition — supplemental factors
  *   - EPA Gas STAR methane/VOC properties (NIST cross-referenced)
  */
 
 // ============================================================
-// MASS DENSITIES — at standard conditions (60°F, 14.7 psia)
+// MASS DENSITIES — per 40 CFR 98.233(v)
+// Subpart W specifies these exact conversion constants; they differ
+// ~0.3% from the physical densities at 60°F/14.7 psia (previously
+// 0.01926 / 0.05295 here). Using EPA's constants so our output matches
+// e-GGRT to the digit.
 // ============================================================
 
-/** Methane (CH4) density at standard conditions, kg/scf */
-export const CH4_KG_PER_SCF = 0.01926
+/** Methane (CH4) mass conversion per 40 CFR 98.233(v), kg/scf */
+export const CH4_KG_PER_SCF = 0.0192
 
-/** Carbon dioxide (CO2) density at standard conditions, kg/scf */
-export const CO2_KG_PER_SCF = 0.05295
+/** Carbon dioxide (CO2) mass conversion per 40 CFR 98.233(v), kg/scf */
+export const CO2_KG_PER_SCF = 0.0526
 
-/** Nitrous oxide (N2O) density at standard conditions, kg/scf */
+/**
+ * Nitrous oxide (N2O) density at standard conditions, kg/scf.
+ * Subpart W §98.233(v) specifies only CH4 and CO2; N2O keeps the
+ * physical value (molar mass ≈ CO2's, hence the near-identical number).
+ */
 export const N2O_KG_PER_SCF = 0.05295
 
 // ============================================================
@@ -53,6 +62,22 @@ export const GWP: Record<string, number> = {
   VOC: 0, // VOC is not GHG-weighted; tracked separately
   NOx: 0,
 }
+
+// ============================================================
+// GAS COMPOSITION DEFAULT
+// ============================================================
+
+/**
+ * Platform default CH4 mole fraction for produced natural gas.
+ *
+ * ⚠ ENGINEERING ASSUMPTION, not an EPA value. §98.233(u)(2) requires
+ * facility-specific gas composition; this default exists only so
+ * facilities without a gas analysis on file still calculate — with the
+ * assumption flagged in the record's activityData
+ * (assumedComposition: true) so the provenance chain shows it.
+ * Typical production-segment gas runs ~0.75–0.90 CH4.
+ */
+export const DEFAULT_CH4_MOLE_FRACTION = 0.85
 
 // ============================================================
 // TIME

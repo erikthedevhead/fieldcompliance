@@ -1,18 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common'
-import { ConfigService } from '@nestjs/config'
-import * as sgMail from '@sendgrid/mail'
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import sgMail from "@sendgrid/mail";
 
 export interface SendMailInput {
-  to: string
-  subject: string
-  html: string
-  text: string
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
 }
 
 export interface SendMailResult {
-  status: 'sent' | 'skipped_dry_run' | 'failed'
+  status: "sent" | "skipped_dry_run" | "failed";
   /** Populated for skipped_dry_run and failed, explaining why. */
-  reason?: string
+  reason?: string;
 }
 
 /**
@@ -27,22 +27,28 @@ export interface SendMailResult {
  */
 @Injectable()
 export class MailService {
-  private readonly logger = new Logger(MailService.name)
-  private readonly enabled: boolean
-  private readonly fromEmail: string
-  private readonly fromName: string
+  private readonly logger = new Logger(MailService.name);
+  private readonly enabled: boolean;
+  private readonly fromEmail: string;
+  private readonly fromName: string;
 
   constructor(private config: ConfigService) {
-    const apiKey = this.config.get<string>('SENDGRID_API_KEY')
-    this.fromEmail = this.config.get<string>('EMAIL_FROM') || 'noreply@houghworks.com'
-    this.fromName = this.config.get<string>('EMAIL_FROM_NAME') || 'FieldCompliance'
+    const apiKey = this.config.get<string>("SENDGRID_API_KEY");
+    this.fromEmail =
+      this.config.get<string>("EMAIL_FROM") || "noreply@houghworks.com";
+    this.fromName =
+      this.config.get<string>("EMAIL_FROM_NAME") || "FieldCompliance";
 
-    this.enabled = !!apiKey
+    this.enabled = !!apiKey;
     if (this.enabled) {
-      sgMail.setApiKey(apiKey!)
-      this.logger.log(`Mail enabled — sending as ${this.fromName} <${this.fromEmail}>`)
+      sgMail.setApiKey(apiKey!);
+      this.logger.log(
+        `Mail enabled — sending as ${this.fromName} <${this.fromEmail}>`,
+      );
     } else {
-      this.logger.warn('SENDGRID_API_KEY not set — email will be logged, not sent')
+      this.logger.warn(
+        "SENDGRID_API_KEY not set — email will be logged, not sent",
+      );
     }
   }
 
@@ -50,8 +56,11 @@ export class MailService {
     if (!this.enabled) {
       this.logger.log(
         `[DRY RUN] Would send to ${input.to}: "${input.subject}"`,
-      )
-      return { status: 'skipped_dry_run', reason: 'SENDGRID_API_KEY not configured' }
+      );
+      return {
+        status: "skipped_dry_run",
+        reason: "SENDGRID_API_KEY not configured",
+      };
     }
 
     try {
@@ -61,17 +70,17 @@ export class MailService {
         subject: input.subject,
         text: input.text,
         html: input.html,
-      })
-      return { status: 'sent' }
+      });
+      return { status: "sent" };
     } catch (err) {
       // SendGrid errors carry useful detail in response.body — surface it
       const detail =
         (err as any)?.response?.body?.errors
           ?.map((e: any) => e.message)
-          .join('; ') ?? (err instanceof Error ? err.message : String(err))
+          .join("; ") ?? (err instanceof Error ? err.message : String(err));
 
-      this.logger.error(`Failed sending to ${input.to}: ${detail}`)
-      return { status: 'failed', reason: detail }
+      this.logger.error(`Failed sending to ${input.to}: ${detail}`);
+      return { status: "failed", reason: detail };
     }
   }
 }
