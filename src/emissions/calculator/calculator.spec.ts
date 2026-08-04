@@ -33,18 +33,20 @@ import { calculateFugitive } from './methodologies/fugitive'
 // ============================================================
 
 const pneumaticHighBleed = {
-  id: 'ef-seed-0',
-  factorValue: 0.174,
-  factorUnit: 'scf-CH4/hr',
-  source: 'AP42',
+  id: 'ef-w1-high-bleed',
+  factorValue: 21,
+  factorUnit: 'scf-whole-gas/hr',
+  source: 'SUBPART_W',
 }
 
 const pneumaticLowBleed = {
-  id: 'ef-seed-1',
-  factorValue: 0.0017,
-  factorUnit: 'scf-CH4/hr',
-  source: 'AP42',
+  id: 'ef-w1-low-bleed',
+  factorValue: 6.8,
+  factorUnit: 'scf-whole-gas/hr',
+  source: 'SUBPART_W',
 }
+
+const DEFAULT_TEST_CH4_FRACTION = 0.85
 
 const tankVoc = {
   id: 'ef-seed-5',
@@ -77,8 +79,8 @@ const fullYear2025 = {
 // ============================================================
 
 describe('units', () => {
-  test('CH4 density matches NIST standard conditions', () => {
-    expect(CH4_KG_PER_SCF).toBeCloseTo(0.01926, 4)
+  test('CH4 density matches 40 CFR 98.233(v) conversion constant', () => {
+    expect(CH4_KG_PER_SCF).toBeCloseTo(0.0192, 4)
   })
 
   test('GWP for CH4 is AR5 100-year (28)', () => {
@@ -94,7 +96,7 @@ describe('units', () => {
   })
 
   test('scfToKg for methane', () => {
-    expect(scfToKg(1000, 'CH4')).toBeCloseTo(19.26, 2)
+    expect(scfToKg(1000, 'CH4')).toBeCloseTo(19.2, 2)
   })
 
   test('lbToKg', () => {
@@ -135,50 +137,60 @@ describe('units', () => {
 // ============================================================
 
 describe('calculatePneumatic', () => {
-  test('high-bleed controller, full year, matches EPA worked example', () => {
-    // Reference calc:
-    //   0.174 scf/hr × 8760 hr = 1524.24 scf CH4
-    //   1524.24 × 0.01926 kg/scf = 29.36 kg CH4
-    //   = 0.02936 mt CH4
-    //   × 28 GWP = 0.822 mt CO2e
+  test('high-bleed controller, full year, matches Table W-1 worked example', () => {
+    // Reference calc (40 CFR 98 Table W-1, 89 FR 42323; whole-gas factor):
+    //   21 scf whole gas/hr × 8760 hr = 183,960 scf whole gas
+    //   × 0.85 CH4 mole fraction = 156,366 scf CH4
+    //   156,366 × 0.0192 kg/scf = 3002.2272 kg = 3.0022272 mt CH4
+    //   × 28 GWP = 84.0624 mt CO2e
     const result = calculatePneumatic({
       equipmentId: 'eq-1',
       equipmentTag: 'PC-101',
       pneumaticType: 'CONTINUOUS_HIGH_BLEED',
       hoursOperated: HOURS_PER_YEAR,
+      ch4MoleFraction: DEFAULT_TEST_CH4_FRACTION,
       factor: pneumaticHighBleed,
     })
 
     expect(result.pollutant).toBe('CH4')
-    expect(result.calculatedQuantity).toBeCloseTo(29.36, 1)
-    expect(result.quantityMetricTons).toBeCloseTo(0.02936, 4)
-    expect(result.co2Equivalent).toBeCloseTo(0.822, 2)
-    expect(result.calculationMethod).toBe('SUBPART_W_PNEUMATIC')
-    expect(result.activityData.scfEmitted).toBeCloseTo(1524.24, 1)
+    expect(result.calculatedQuantity).toBeCloseTo(3002.23, 1)
+    expect(result.quantityMetricTons).toBeCloseTo(3.00223, 4)
+    expect(result.co2Equivalent).toBeCloseTo(84.062, 2)
+    expect(result.calculationMethod).toBe('SUBPART_W_EQ_W1B_POPULATION_FACTOR')
+    expect(result.activityData.scfWholeGas).toBeCloseTo(183960, 0)
+    expect(result.activityData.scfCh4).toBeCloseTo(156366, 0)
   })
 
-  test('low-bleed controller emits ~100× less than high-bleed', () => {
+  test('REGRESSION GUARD: high-bleed full year is not the pre-2026-07 fabricated ~0.822 mt', () => {
+    const result = calculatePneumatic({
+      equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'CONTINUOUS_HIGH_BLEED',
+      hoursOperated: HOURS_PER_YEAR, ch4MoleFraction: DEFAULT_TEST_CH4_FRACTION, factor: pneumaticHighBleed,
+    })
+    expect(result.co2Equivalent).toBeGreaterThan(50)
+  })
+
+  test('high-bleed emits the Table W-1 ratio (21/6.8 ≈ 3.09×) more than low-bleed', () => {
     const high = calculatePneumatic({
       equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'CONTINUOUS_HIGH_BLEED',
-      hoursOperated: HOURS_PER_YEAR, factor: pneumaticHighBleed,
+      hoursOperated: HOURS_PER_YEAR, ch4MoleFraction: DEFAULT_TEST_CH4_FRACTION, factor: pneumaticHighBleed,
     })
     const low = calculatePneumatic({
       equipmentId: 'eq-2', equipmentTag: 'PC-102', pneumaticType: 'CONTINUOUS_LOW_BLEED',
-      hoursOperated: HOURS_PER_YEAR, factor: pneumaticLowBleed,
+      hoursOperated: HOURS_PER_YEAR, ch4MoleFraction: DEFAULT_TEST_CH4_FRACTION, factor: pneumaticLowBleed,
     })
 
-    // 0.174 / 0.0017 ≈ 102.4
-    expect(high.co2Equivalent / low.co2Equivalent).toBeCloseTo(102.35, 0)
+    // 21 / 6.8 = 3.0882 -- hours and CH4 fraction cancel, ratio is factor-only
+    expect(high.co2Equivalent / low.co2Equivalent).toBeCloseTo(3.088, 2)
   })
 
   test('partial-period emissions scale linearly with hours', () => {
     const fullYear = calculatePneumatic({
       equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'CONTINUOUS_HIGH_BLEED',
-      hoursOperated: HOURS_PER_YEAR, factor: pneumaticHighBleed,
+      hoursOperated: HOURS_PER_YEAR, ch4MoleFraction: DEFAULT_TEST_CH4_FRACTION, factor: pneumaticHighBleed,
     })
     const halfYear = calculatePneumatic({
       equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'CONTINUOUS_HIGH_BLEED',
-      hoursOperated: HOURS_PER_YEAR / 2, factor: pneumaticHighBleed,
+      hoursOperated: HOURS_PER_YEAR / 2, ch4MoleFraction: DEFAULT_TEST_CH4_FRACTION, factor: pneumaticHighBleed,
     })
 
     expect(halfYear.co2Equivalent).toBeCloseTo(fullYear.co2Equivalent / 2, 3)
@@ -189,9 +201,10 @@ describe('calculatePneumatic', () => {
       calculatePneumatic({
         equipmentId: 'eq-1', equipmentTag: 'PC-101', pneumaticType: 'CONTINUOUS_HIGH_BLEED',
         hoursOperated: 100,
+        ch4MoleFraction: DEFAULT_TEST_CH4_FRACTION,
         factor: { ...pneumaticHighBleed, factorUnit: 'lb-VOC/bbl' },
       }),
-    ).toThrow(/scf-CH4\/hr/)
+    ).toThrow(/scf-whole-gas\/hr/)
   })
 })
 
