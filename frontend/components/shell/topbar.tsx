@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Search, LogOut } from 'lucide-react'
 import { useAuthStore } from '@/lib/auth-store'
 import { NavLinks } from './nav-links'
+import { ImportButton } from './import-button'
 
 export function Topbar() {
   const router = useRouter()
@@ -54,14 +55,17 @@ export function Topbar() {
         </div>
 
         {/* Cmd+K placeholder */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <ImportButton />
         <button
-          type="button"
-          className="hidden md:flex items-center gap-2 h-8 px-3 rounded border border-hairline bg-canvas-card text-[12px] text-ink-muted hover:border-divider transition-colors focus-ring flex-shrink-0"
-        >
-          <Search size={13} strokeWidth={1.75} />
-          Jump to anything
-          <span className="ml-6 text-ink-subtle font-mono">⌘K</span>
-        </button>
+            type="button"
+            className="hidden md:flex items-center gap-2 h-8 px-3 rounded border border-hairline bg-canvas-card text-[12px] text-ink-muted hover:border-divider transition-colors focus-ring flex-shrink-0"
+          >
+            <Search size={13} strokeWidth={1.75} />
+            Jump to anything
+            <span className="ml-6 text-ink-subtle font-mono">⌘K</span>
+          </button>
+        </div>
 
         {/* User */}
         <div className="flex items-center gap-3 flex-shrink-0">

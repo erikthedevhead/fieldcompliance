@@ -15,7 +15,7 @@ import { ReportsModule } from "./reports/reports.module";
 import { HealthModule } from "./health/health.module";
 import { MailModule } from "./mail/mail.module";
 import { AlertsModule } from "./alerts/alerts.module";
-
+import { ImportModule } from "./import/import.module";
 import { JwtAuthGuard } from "./auth/guards/jwt-auth.guard";
 import { RolesGuard } from "./auth/guards/roles.guard";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
@@ -39,6 +39,7 @@ import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
     HealthModule,
     MailModule,
     AlertsModule,
+    ImportModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
