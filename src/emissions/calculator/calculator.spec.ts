@@ -26,8 +26,6 @@ import {
 import { calculatePneumatic } from './methodologies/pneumatic'
 import { calculateStorageTank } from './methodologies/storage-tank'
 import { calculateCompressor } from './methodologies/compressor'
-import { calculateFugitive } from './methodologies/fugitive'
-
 // ============================================================
 // Test factor fixtures matching the seeded DB rows
 // ============================================================
@@ -59,13 +57,6 @@ const compressorCh4 = {
   id: 'ef-seed-3',
   factorValue: 0.00228,
   factorUnit: 'scf-CH4/hr/cylinder',
-  source: 'AP42',
-}
-
-const fugitiveCh4 = {
-  id: 'ef-seed-2',
-  factorValue: 0.00004,
-  factorUnit: 'tpy-CH4/component',
   source: 'AP42',
 }
 
@@ -275,50 +266,3 @@ describe('calculateCompressor', () => {
 // FUGITIVE COMPONENTS
 // ============================================================
 
-describe('calculateFugitive', () => {
-  test('100 components, full year', () => {
-    // 100 × 0.00004 tpy CH4/component × 1.0 yr fraction = 0.004 short tons CH4
-    // × 0.907185 = 0.00363 mt CH4
-    // × 28 GWP = 0.1016 mt CO2e
-    const result = calculateFugitive({
-      componentCount: 100,
-      periodStart: fullYear2025.start,
-      periodEnd: fullYear2025.end,
-      factor: fugitiveCh4,
-    })
-
-    expect(result.pollutant).toBe('CH4')
-    expect(result.quantityMetricTons).toBeCloseTo(0.00363, 4)
-    expect(result.co2Equivalent).toBeCloseTo(0.1016, 3)
-    expect(result.equipmentId).toBeNull() // facility-wide
-  })
-
-  test('component count scales linearly', () => {
-    const small = calculateFugitive({
-      componentCount: 50,
-      periodStart: fullYear2025.start, periodEnd: fullYear2025.end,
-      factor: fugitiveCh4,
-    })
-    const big = calculateFugitive({
-      componentCount: 500,
-      periodStart: fullYear2025.start, periodEnd: fullYear2025.end,
-      factor: fugitiveCh4,
-    })
-    expect(big.co2Equivalent / small.co2Equivalent).toBeCloseTo(10, 4)
-  })
-
-  test('Q1-only prorates to ~25% of annual', () => {
-    const annual = calculateFugitive({
-      componentCount: 100,
-      periodStart: fullYear2025.start, periodEnd: fullYear2025.end,
-      factor: fugitiveCh4,
-    })
-    const q1 = calculateFugitive({
-      componentCount: 100,
-      periodStart: fullYear2025.start,
-      periodEnd: new Date('2025-04-01T00:00:00Z'),
-      factor: fugitiveCh4,
-    })
-    expect(q1.co2Equivalent / annual.co2Equivalent).toBeCloseTo(0.247, 2)
-  })
-})

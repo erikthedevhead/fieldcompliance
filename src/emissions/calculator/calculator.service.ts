@@ -8,8 +8,15 @@
  * Methodology functions are pure and don't touch Prisma — only this service
  * does, so the methodology layer is fully unit-testable in isolation.
  *
- * NOTE: persistResults() signature changed to require orgId as first
- * parameter. Update the caller (emissions.controller.ts) accordingly.
+ * 2026-08-05 EQUIPMENT LEAKS REWRITE: the fugitive component-count
+ * heuristic (25 components/equipment × fabricated per-component factor)
+ * is replaced by the verified Table W-1 major-equipment population method
+ * (§98.233(r)). Each mapped equipment item gets its own leak record.
+ * calculateFugitive / fugitive.ts is retired.
+ *
+ * NOTE: a compressor produces TWO records by design — rod-packing venting
+ * (§98.233(p)) and an equipment leak (§98.233(r)). These are separate
+ * source types in Subpart W, not double counting.
  */
 
 import { Injectable, NotFoundException, Logger } from "@nestjs/common";
@@ -28,10 +35,38 @@ import {
 import { calculatePneumatic } from "./methodologies/pneumatic";
 import { calculateStorageTank } from "./methodologies/storage-tank";
 import { calculateCompressor } from "./methodologies/compressor";
-import { calculateFugitive } from "./methodologies/fugitive";
+import {
+  calculateEquipmentLeak,
+  LeakServiceType,
+  MajorEquipmentType,
+} from "./methodologies/equipment-leaks";
 
 const DEFAULT_TANK_TURNOVERS_PER_YEAR = 12;
-const DEFAULT_FUGITIVE_COMPONENTS_PER_EQUIPMENT = 25;
+
+/**
+ * EquipmentCategory → Table W-1 major-equipment row (§98.233(r) population
+ * method). Categories not listed (pneumatics, flares, fugitive-component
+ * placeholder rows) are not "major equipment" in Table W-1 and get no leak
+ * record. HEATER is in Table W-1 but has no EquipmentCategory yet (schema
+ * backlog).
+ */
+const LEAK_MAJOR_EQUIPMENT_MAP: Record<string, MajorEquipmentType> = {
+  WELLHEAD: "WELLHEAD",
+  SEPARATOR: "SEPARATOR",
+  METER_SEPARATOR: "METERS_PIPING",
+  COMPRESSOR_RECIPROCATING: "COMPRESSOR",
+  COMPRESSOR_CENTRIFUGAL: "COMPRESSOR",
+  DEHYDRATOR_GLYCOL: "DEHYDRATOR",
+  STORAGE_TANK: "STORAGE_VESSEL",
+};
+
+/**
+ * Platform default leak service type. Table W-1 has separate gas-service
+ * and crude-service factor blocks; Facility has no serviceType field yet
+ * (schema backlog), so we default to GAS and flag the assumption in
+ * activityData — same pattern as DEFAULT_CH4_MOLE_FRACTION.
+ */
+const DEFAULT_LEAK_SERVICE_TYPE: LeakServiceType = "GAS";
 
 @Injectable()
 export class CalculatorService {
@@ -62,7 +97,6 @@ export class CalculatorService {
       const periodHours = hoursBetween(input.periodStart, input.periodEnd);
       const overrides = input.activityData ?? {};
 
-      // ---- Pneumatic controllers ----
       // §98.233(u)(2): gas composition is facility-specific. Fall back to
       // the platform default only when no gas analysis is on file, and
       // flag the assumption so it shows in the provenance chain.
@@ -79,6 +113,7 @@ export class CalculatorService {
         );
       }
 
+      // ---- Pneumatic controllers (§98.233(a), Eq. W-1B) ----
       const pneumatics = facility.equipment.filter(
         (e) => e.category === "PNEUMATIC_CONTROLLER",
       );
@@ -104,7 +139,7 @@ export class CalculatorService {
         );
       }
 
-      // ---- Storage tanks ----
+      // ---- Storage tanks (throughput calc — pending §98.233(j) rework) ----
       const tanks = facility.equipment.filter(
         (e) => e.category === "STORAGE_TANK",
       );
@@ -127,7 +162,8 @@ export class CalculatorService {
         );
       }
 
-      // ---- Reciprocating compressors ----
+      // ---- Reciprocating compressors (rod packing — pending §98.233(p)
+      //      factor verification; skips automatically if factor expired) ----
       const compressors = facility.equipment.filter(
         (e) => e.category === "COMPRESSOR_RECIPROCATING",
       );
@@ -151,22 +187,33 @@ export class CalculatorService {
         );
       }
 
-      // ---- Fugitive components (facility-wide) ----
-      const factor = await this.lookupFactor(tx, "FUGITIVE_COMPONENT", "CH4");
-      if (factor) {
-        const componentCount =
-          overrides.fugitiveComponentCount ??
-          facility.equipment.length * DEFAULT_FUGITIVE_COMPONENTS_PER_EQUIPMENT;
-        if (componentCount > 0) {
-          records.push(
-            calculateFugitive({
-              componentCount,
-              periodStart: input.periodStart,
-              periodEnd: input.periodEnd,
-              factor,
-            }),
-          );
-        }
+      // ---- Equipment leaks (§98.233(r), Table W-1 major-equipment
+      //      population method). One record per mapped equipment item. ----
+      const serviceType = DEFAULT_LEAK_SERVICE_TYPE;
+      const serviceTypeAssumed = true; // no Facility.leakServiceType yet
+      for (const eq of facility.equipment) {
+        const majorType = LEAK_MAJOR_EQUIPMENT_MAP[eq.category];
+        if (!majorType) continue;
+        const factor = await this.lookupFactor(
+          tx,
+          "FUGITIVE_COMPONENT",
+          "CH4",
+          `${majorType}_${serviceType}`,
+        );
+        if (!factor) continue;
+        records.push(
+          calculateEquipmentLeak({
+            equipmentId: eq.id,
+            equipmentTag: eq.tag,
+            majorEquipmentType: majorType,
+            serviceType,
+            isServiceTypeAssumed: serviceTypeAssumed,
+            hoursOperated: periodHours,
+            ch4MoleFraction: ch4Fraction,
+            isCompositionAssumed: compositionAssumed,
+            factor,
+          }),
+        );
       }
 
       return this.aggregate(input, records);
@@ -176,9 +223,6 @@ export class CalculatorService {
   /**
    * Persist a CalculationResult as EmissionRecord rows.
    * Returns the count of records written.
-   *
-   * SIGNATURE CHANGE: now requires orgId for RLS scoping.
-   * Update emissions.controller.ts to pass user.orgId as first argument.
    */
   async persistResults(
     orgId: string,
@@ -200,6 +244,7 @@ export class CalculatorService {
             reportingPeriodStart: result.periodStart,
             reportingPeriodEnd: result.periodEnd,
             emissionSource: this.inferEmissionSource(
+              rec.calculationMethod,
               rec.equipmentCategory,
             ) as any,
             pollutant: rec.pollutant,
@@ -234,10 +279,8 @@ export class CalculatorService {
    * subType semantics:
    *   - undefined → category has no variants; match any subType.
    *   - null / value → exact match on subType. An equipment row with an
-   *     unspecified variant (e.g. pneumaticType null) therefore finds NO
-   *     factor and is skipped with a warning — a compliance calculation
-   *     must never guess which device type it's looking at. (Previously
-   *     this fell back to notes-string matching and then factors[0].)
+   *     unspecified variant therefore finds NO factor and is skipped with
+   *     a warning — a compliance calculation must never guess.
    *
    * EmissionFactor is a global reference table — not RLS scoped, but we
    * still accept a `tx` client so it participates in the caller's
@@ -309,7 +352,15 @@ export class CalculatorService {
     return Math.max(2, Math.round(comp.compressorHp / 250));
   }
 
-  private inferEmissionSource(equipmentCategory: string): string {
+  private inferEmissionSource(
+    calculationMethod: string,
+    equipmentCategory: string,
+  ): string {
+    // Equipment-leak records are FUGITIVE regardless of the equipment
+    // category they attach to; everything else keeps the category rule.
+    if (calculationMethod === "SUBPART_W_LEAK_MAJOR_EQUIPMENT_POPULATION") {
+      return "FUGITIVE";
+    }
     switch (equipmentCategory) {
       case "FUGITIVE_COMPONENT":
         return "FUGITIVE";

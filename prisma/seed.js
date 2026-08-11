@@ -422,19 +422,6 @@ async function main() {
     // ---- Legacy factors (unchanged values; explicit ids keep them ----
     // ---- stable now that the upsert loop actively updates rows)    ----
     {
-      id: "ef-seed-2",
-      source: "AP42",
-      equipmentCategory: "FUGITIVE_COMPONENT",
-      pollutant: "CH4",
-      subType: null,
-      factorValue: 0.00004,
-      factorUnit: "tpy-CH4/component",
-      applicableFrom: new Date("2014-01-01"),
-      notes:
-        "Average fugitive emission factor for valves and connectors, production segment.",
-      federalRegCitation: "40 CFR Part 98 Table W-4",
-    },
-    {
       id: "ef-seed-3",
       source: "AP42",
       equipmentCategory: "COMPRESSOR_RECIPROCATING",
