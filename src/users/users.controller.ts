@@ -9,34 +9,40 @@ import { UpdateUserDto } from './dto/update-user.dto'
 export class UsersController {
   constructor(private users: UsersService) {}
 
-  /** Get the current logged-in user. */
   @Get('me')
   me(@CurrentUser() user: any) {
     return this.users.findById(user.id, user.orgId)
   }
 
-  /** List all users in the current org. Admin only. */
-  @Roles('ORG_ADMIN')
   @Get()
   list(@CurrentUser() user: any) {
     return this.users.listForOrg(user.orgId)
   }
 
-  /** Invite a new user to the org. Admin only. */
-  @Roles('ORG_ADMIN')
-  @Post()
-  create(@CurrentUser() user: any, @Body() dto: CreateUserDto) {
-    return this.users.create(user.orgId, dto)
+  @Get(':id')
+  findOne(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.users.findById(id, user.orgId)
   }
 
-  /** Update a user in the org. Admin only. */
+  /** Invite a user — creates an inactive account and emails an accept link. */
+  @Roles('ORG_ADMIN')
+  @Post()
+  invite(@CurrentUser() user: any, @Body() dto: CreateUserDto) {
+    return this.users.create(user.orgId, dto, user.id)
+  }
+
+  @Roles('ORG_ADMIN')
+  @Post(':id/resend-invite')
+  resendInvite(@CurrentUser() user: any, @Param('id') id: string) {
+    return this.users.resendInvite(id, user.orgId)
+  }
+
   @Roles('ORG_ADMIN')
   @Patch(':id')
   update(@CurrentUser() user: any, @Param('id') id: string, @Body() dto: UpdateUserDto) {
     return this.users.update(id, user.orgId, dto)
   }
 
-  /** Deactivate a user. Admin only. */
   @Roles('ORG_ADMIN')
   @Delete(':id')
   deactivate(@CurrentUser() user: any, @Param('id') id: string) {

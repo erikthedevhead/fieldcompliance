@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -67,6 +68,13 @@ export function LoginForm() {
           disabled={isLoading}
         />
       </div>
+
+<Link
+  href="/forgot-password"
+  className="text-[13px] text-info hover:underline self-start -mt-2"
+>
+  Forgot password?
+</Link>
 
       {error && (
         <div className="rounded border border-overdue/30 bg-overdue-bg px-3 py-2 text-[13px] text-overdue">

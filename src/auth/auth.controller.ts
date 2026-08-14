@@ -5,6 +5,7 @@ import { LoginDto } from './dto/login.dto'
 import { RegisterDto } from './dto/register.dto'
 import { ResetPasswordDto } from './dto/reset-password.dto'
 import { RequestPasswordResetDto } from './dto/request-password-reset.dto'
+import { AcceptInviteDto } from './dto/accept-invite.dto'
 import { Public } from './decorators/public.decorator'
 
 @Controller('auth')
@@ -37,5 +38,12 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.auth.resetPassword(dto)
+  }
+
+  @Public()
+  @Post('invite/accept')
+  @HttpCode(HttpStatus.OK)
+  acceptInvite(@Body() dto: AcceptInviteDto) {
+    return this.auth.acceptInvite(dto)
   }
 }
