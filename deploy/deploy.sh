@@ -42,11 +42,14 @@ fi
 
 echo ""
 echo "→ Waiting for health check…"
-sleep 3
-if curl -sf http://localhost:3001/api/v1/health >/dev/null; then
-  echo "✓ Deploy complete. API is healthy."
-else
-  echo "✗ Deploy finished but health check failed."
-  echo "  Check logs: pm2 logs fc-api"
-  exit 1
-fi
+# Poll for health rather than guessing at a fixed delay.
+for i in $(seq 1 10); do
+  if curl -sf http://localhost:3001/api/v1/health >/dev/null; then
+    echo "✓ Deploy complete. API is healthy."
+    exit 0
+  fi
+  sleep 2
+done
+echo "✗ Deploy finished but API did not become healthy within 20s."
+echo "  Check logs: pm2 logs fc-api"
+exit 1
