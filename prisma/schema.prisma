@@ -204,6 +204,17 @@ model Equipment {
   pneumaticType    PneumaticDeviceType?
   tankCapacityBbls Decimal?          @db.Decimal(10, 2)
   compressorHp     Int?
+  /// Hours in OPERATING MODE during the reporting year (98.238 compressor
+  /// mode). Required by Eq. W-29E; standby-pressurized and not-operating-
+  /// depressurized time is excluded. Null -> calculator assumes full period.
+  operatingHours   Int?
+  /// False when rod packing emissions route to a flare, combustion, or
+  /// vapor recovery system -- those are out of scope for 98.233(p).
+  ventedToAtmosphere Boolean @default(true)
+  /// True when subject to the OOOOb reciprocating compressor standards in
+  /// 60.5385b (or approved state/Federal plan). Those compressors MUST be
+  /// measured; the W-29E factor path is not legal for them.
+  isSubjectToOOOObCompressorStandards Boolean @default(false)
   throughputMcfd   Decimal?          @db.Decimal(10, 2)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt

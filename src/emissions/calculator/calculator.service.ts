@@ -34,7 +34,7 @@ import {
 } from "./units";
 import { calculatePneumatic } from "./methodologies/pneumatic";
 import { calculateStorageTank } from "./methodologies/storage-tank";
-import { calculateCompressor } from "./methodologies/compressor";
+import { calculateCompressorRodPacking } from "./methodologies/compressor-rod-packing";
 import {
   calculateEquipmentLeak,
   LeakServiceType,
@@ -162,27 +162,57 @@ export class CalculatorService {
         );
       }
 
-      // ---- Reciprocating compressors (rod packing — pending §98.233(p)
-      //      factor verification; skips automatically if factor expired) ----
+      // ---- Reciprocating compressor rod packing (§98.233(p)(10)(iv),
+      //      Eq. W-29E). Skips compressors subject to §60.5385b (those
+      //      MUST be measured) and any not venting to atmosphere. ----
+      const totalHoursInYear =
+        new Date(input.periodEnd).getUTCFullYear() % 4 === 0 ? 8784 : 8760;
       const compressors = facility.equipment.filter(
         (e) => e.category === "COMPRESSOR_RECIPROCATING",
       );
       for (const comp of compressors) {
-        const factor = await this.lookupFactor(
+        if ((comp as any).isSubjectToOOOObCompressorStandards) {
+          this.logger.warn(
+            `Compressor ${comp.tag} is subject to §60.5385b — measurement ` +
+              `required; W-29E factor path not applicable. Skipped.`,
+          );
+          continue;
+        }
+        if ((comp as any).ventedToAtmosphere === false) continue;
+
+        const ch4Factor = await this.lookupFactor(
           tx,
           "COMPRESSOR_RECIPROCATING",
           "CH4",
+          "ROD_PACKING_CH4",
         );
-        if (!factor) continue;
-        const hours = overrides.compressorHours ?? periodHours;
-        const cylinders = this.estimateCylinders(comp);
+        if (!ch4Factor) continue;
+        const co2Factor = await this.lookupFactor(
+          tx,
+          "COMPRESSOR_RECIPROCATING",
+          "CO2",
+          "ROD_PACKING_CO2",
+        );
+
+        const operatingHours =
+          (comp as any).operatingHours ??
+          overrides.compressorHours ??
+          Math.min(periodHours, totalHoursInYear);
+
         records.push(
-          calculateCompressor({
+          calculateCompressorRodPacking({
             equipmentId: comp.id,
             equipmentTag: comp.tag,
-            cylinders,
-            hoursOperated: hours,
-            factor,
+            operatingHours,
+            totalHoursInYear,
+            ch4MoleFraction: ch4Fraction,
+            co2MoleFraction:
+              facility.co2MoleFraction != null
+                ? Number(facility.co2MoleFraction)
+                : 0,
+            isCompositionAssumed: compositionAssumed,
+            ch4Factor,
+            co2Factor: co2Factor ?? undefined,
           }),
         );
       }
@@ -343,13 +373,6 @@ export class CalculatorService {
       DEFAULT_TANK_TURNOVERS_PER_YEAR *
       fractionOfYear(periodStart, periodEnd)
     );
-  }
-
-  private estimateCylinders(comp: { compressorHp: number | null }): number {
-    if (!comp.compressorHp) return 2;
-    if (comp.compressorHp < 100) return 1;
-    if (comp.compressorHp < 500) return 2;
-    return Math.max(2, Math.round(comp.compressorHp / 250));
   }
 
   private inferEmissionSource(

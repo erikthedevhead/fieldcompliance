@@ -25,7 +25,6 @@ import {
 } from './units'
 import { calculatePneumatic } from './methodologies/pneumatic'
 import { calculateStorageTank } from './methodologies/storage-tank'
-import { calculateCompressor } from './methodologies/compressor'
 // ============================================================
 // Test factor fixtures matching the seeded DB rows
 // ============================================================
@@ -50,13 +49,6 @@ const tankVoc = {
   id: 'ef-seed-5',
   factorValue: 1.86,
   factorUnit: 'lb-VOC/bbl',
-  source: 'AP42',
-}
-
-const compressorCh4 = {
-  id: 'ef-seed-3',
-  factorValue: 0.00228,
-  factorUnit: 'scf-CH4/hr/cylinder',
   source: 'AP42',
 }
 
@@ -233,34 +225,6 @@ describe('calculateStorageTank', () => {
 // ============================================================
 // COMPRESSOR
 // ============================================================
-
-describe('calculateCompressor', () => {
-  test('2-cylinder reciprocating compressor, full year', () => {
-    // 0.00228 scf/hr/cyl × 2 cyl × 8760 hr = 39.94 scf CH4
-    // × 0.01926 kg/scf = 0.7694 kg CH4 = 0.0007694 mt CH4
-    // × 28 GWP = 0.0215 mt CO2e
-    const result = calculateCompressor({
-      equipmentId: 'eq-4', equipmentTag: 'C-101',
-      cylinders: 2, hoursOperated: HOURS_PER_YEAR, factor: compressorCh4,
-    })
-
-    expect(result.pollutant).toBe('CH4')
-    expect(result.calculatedQuantity).toBeCloseTo(0.769, 2)
-    expect(result.co2Equivalent).toBeCloseTo(0.0215, 3)
-  })
-
-  test('cylinder count scales linearly', () => {
-    const oneCyl = calculateCompressor({
-      equipmentId: 'eq-4', equipmentTag: 'C-101',
-      cylinders: 1, hoursOperated: HOURS_PER_YEAR, factor: compressorCh4,
-    })
-    const fourCyl = calculateCompressor({
-      equipmentId: 'eq-4', equipmentTag: 'C-101',
-      cylinders: 4, hoursOperated: HOURS_PER_YEAR, factor: compressorCh4,
-    })
-    expect(fourCyl.co2Equivalent).toBeCloseTo(oneCyl.co2Equivalent * 4, 4)
-  })
-})
 
 // ============================================================
 // FUGITIVE COMPONENTS
