@@ -45,6 +45,11 @@ enum PneumaticDeviceType {
   INTERMITTENT_BLEED
   CONTINUOUS_LOW_BLEED
 }
+enum LiquidType {
+  CRUDE_OIL
+  GAS_CONDENSATE
+}
+
 enum EmissionSource {
   VENTING
   FUGITIVE
@@ -216,6 +221,26 @@ model Equipment {
   /// measured; the W-29E factor path is not legal for them.
   isSubjectToOOOObCompressorStandards Boolean @default(false)
   throughputMcfd   Decimal?          @db.Decimal(10, 2)
+  /// Tank Method 3 (98.233(j)(3)) inputs. These live on the FEEDING unit
+  /// (separator / well / non-separator equipment), not on the tank --
+  /// Eq. W-15A counts feeding units, not tanks.
+  liquidType             LiquidType?
+  /// Annual average daily throughput of hydrocarbon liquids, bbl/day.
+  /// Method 3 applies only when > 0 and < 10; at or above 10 the stream
+  /// requires Method 1 or 2 and is skipped.
+  dailyThroughputBbl     Decimal?  @db.Decimal(10, 2)
+  /// True when this unit feeds liquids or produced water directly to an
+  /// atmospheric pressure storage tank.
+  feedsAtmosphericTank   Boolean   @default(false)
+  /// Annual produced water routed to atmospheric tanks, bbl (Eq. W-15B FR).
+  producedWaterBblPerYear Decimal? @db.Decimal(12, 2)
+  /// Representative feeding-equipment pressure, psig. Selects the W-15B
+  /// tier: <=50, >50 and <=250, >250. A 33.9x swing across tiers.
+  feedPressurePsig       Decimal?  @db.Decimal(8, 2)
+  /// STORAGE_TANK rows: emissions routed to a VRU or flare require the
+  /// 98.233(j)(4) hours-based apportionment (open thief hatch = 0%
+  /// capture). Not modeled -- such tanks are skipped, not estimated.
+  routesToVruOrFlare     Boolean   @default(false)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   facility         Facility          @relation(fields: [facilityId], references: [id])

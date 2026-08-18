@@ -33,15 +33,18 @@ import {
   DEFAULT_CH4_MOLE_FRACTION,
 } from "./units";
 import { calculatePneumatic } from "./methodologies/pneumatic";
-import { calculateStorageTank } from "./methodologies/storage-tank";
+import {
+  calculateTankHydrocarbonMethod3,
+  calculateTankProducedWaterMethod3,
+  producedWaterTier,
+  METHOD_3_MAX_BBL_PER_DAY,
+} from "./methodologies/storage-tank-method3";
 import { calculateCompressorRodPacking } from "./methodologies/compressor-rod-packing";
 import {
   calculateEquipmentLeak,
   LeakServiceType,
   MajorEquipmentType,
 } from "./methodologies/equipment-leaks";
-
-const DEFAULT_TANK_TURNOVERS_PER_YEAR = 12;
 
 /**
  * EquipmentCategory → Table W-1 major-equipment row (§98.233(r) population
@@ -139,27 +142,88 @@ export class CalculatorService {
         );
       }
 
-      // ---- Storage tanks (throughput calc — pending §98.233(j) rework) ----
-      const tanks = facility.equipment.filter(
-        (e) => e.category === "STORAGE_TANK",
+      // ---- Atmospheric storage tanks, Calculation Method 3
+      //      (§98.233(j)(3), Eq. W-15A hydrocarbon liquids / W-15B
+      //      produced water). Counts FEEDING units, not tanks. Streams
+      //      >= 10 bbl/day need Method 1 or 2 (not implemented) and are
+      //      skipped. Tanks routed to a VRU or flare need the (j)(4)
+      //      hours apportionment and are skipped. ----
+      const tanksRouted = facility.equipment.some(
+        (e) => e.category === "STORAGE_TANK" && (e as any).routesToVruOrFlare,
       );
-      for (const tank of tanks) {
-        const factor = await this.lookupFactor(tx, "STORAGE_TANK", "VOC");
-        if (!factor) continue;
-        const throughput = this.resolveTankThroughput(
-          tank,
-          overrides,
-          input.periodStart,
-          input.periodEnd,
+      if (tanksRouted) {
+        this.logger.warn(
+          `Facility ${facility.id} has tanks routed to a VRU or flare — ` +
+            `§98.233(j)(4) hours-based apportionment is not implemented. ` +
+            `Those tank emissions are omitted.`,
         );
-        records.push(
-          calculateStorageTank({
-            equipmentId: tank.id,
-            equipmentTag: tank.tag,
-            throughputBbl: throughput,
-            factor,
-          }),
-        );
+      }
+
+      const tankFeeders = facility.equipment.filter(
+        (e) => (e as any).feedsAtmosphericTank,
+      );
+      for (const unit of tankFeeders) {
+        const throughput = (unit as any).dailyThroughputBbl;
+        const liquidType = (unit as any).liquidType;
+
+        // W-15A: hydrocarbon liquids
+        if (throughput != null && liquidType) {
+          const bblPerDay = Number(throughput);
+          if (bblPerDay <= 0 || bblPerDay >= METHOD_3_MAX_BBL_PER_DAY) {
+            this.logger.warn(
+              `${unit.tag}: ${bblPerDay} bbl/day is outside Method 3 ` +
+                `(> 0 and < ${METHOD_3_MAX_BBL_PER_DAY}). Method 1 or 2 required — skipped.`,
+            );
+          } else {
+            const ch4Factor = await this.lookupFactor(
+              tx, "STORAGE_TANK", "CH4", `${liquidType}_CH4`,
+            );
+            const co2Factor = await this.lookupFactor(
+              tx, "STORAGE_TANK", "CO2", `${liquidType}_CO2`,
+            );
+            if (ch4Factor) {
+              records.push(
+                calculateTankHydrocarbonMethod3({
+                  equipmentId: unit.id,
+                  equipmentTag: unit.tag,
+                  liquidType,
+                  dailyThroughputBbl: bblPerDay,
+                  ch4Factor,
+                  co2Factor: co2Factor ?? undefined,
+                }),
+              );
+            }
+          }
+        }
+
+        // W-15B: produced water
+        const water = (unit as any).producedWaterBblPerYear;
+        const pressure = (unit as any).feedPressurePsig;
+        if (water != null && Number(water) > 0) {
+          if (pressure == null) {
+            this.logger.warn(
+              `${unit.tag}: produced water present but feedPressurePsig is not ` +
+                `set — the W-15B tier spans a 33.9x range, so this is skipped ` +
+                `rather than guessed.`,
+            );
+          } else {
+            const tier = producedWaterTier(Number(pressure));
+            const waterFactor = await this.lookupFactor(
+              tx, "STORAGE_TANK", "CH4", tier,
+            );
+            if (waterFactor) {
+              records.push(
+                calculateTankProducedWaterMethod3({
+                  equipmentId: unit.id,
+                  equipmentTag: unit.tag,
+                  producedWaterBbl: Number(water),
+                  feedPressurePsig: Number(pressure),
+                  factor: waterFactor,
+                }),
+              );
+            }
+          }
+        }
       }
 
       // ---- Reciprocating compressor rod packing (§98.233(p)(10)(iv),
@@ -358,24 +422,7 @@ export class CalculatorService {
     };
   }
 
-  private resolveTankThroughput(
-    tank: { tankCapacityBbls: any },
-    overrides: ActivityDataOverrides,
-    periodStart: Date,
-    periodEnd: Date,
-  ): number {
-    if (overrides.storageTankThroughputBbl !== undefined) {
-      return overrides.storageTankThroughputBbl;
-    }
-    const capacity = Number(tank.tankCapacityBbls ?? 0);
-    return (
-      capacity *
-      DEFAULT_TANK_TURNOVERS_PER_YEAR *
-      fractionOfYear(periodStart, periodEnd)
-    );
-  }
-
-  private inferEmissionSource(
+    private inferEmissionSource(
     calculationMethod: string,
     equipmentCategory: string,
   ): string {
