@@ -127,6 +127,8 @@ export interface Facility {
   longitude?: string | number | null
   commissionedAt?: string | null
   decommissionedAt?: string | null
+  /// Optional AAPG basin override; normally derived from state + county.
+  basinCode?: string | null
   _count?: { equipment: number; deadlines: number; inspections: number }
 }
 
@@ -140,6 +142,7 @@ export interface CreateFacilityInput {
   longitude?: number
   legalDescription?: string
   commissionedAt?: string
+  basinCode?: string
 }
 
 export type UpdateFacilityInput = Partial<Omit<CreateFacilityInput, 'type' | 'state'>>

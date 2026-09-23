@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { ScheduleModule } from "@nestjs/schedule";
 import { APP_GUARD, APP_FILTER } from "@nestjs/core";
+import { BasinsModule } from './basins/basins.module'
 
 import { PrismaModule } from "./prisma/prisma.module";
 import { AuthModule } from "./auth/auth.module";
@@ -21,7 +22,7 @@ import { RolesGuard } from "./auth/guards/roles.guard";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 
 @Module({
-  imports: [
+  imports: [BasinsModule, 
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: [".env.local", ".env"],

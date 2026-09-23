@@ -178,6 +178,11 @@ model Facility {
   /// CO2 mole fraction of produced gas, 0–1. Reserved for the vented-CO2
   /// leg of Eq. W-1B (not yet calculated by the orchestrator).
   co2MoleFraction   Decimal?     @db.Decimal(5, 4)
+  /// OPTIONAL override of the AAPG basin. Normally derived from
+  /// state + county via BasinCounty; set only when the derivation
+  /// is wrong or ambiguous (EPA's own 160 vs 160A guidance was
+  /// contested for years, so an override is necessary).
+  basinCode         String?
   operatorId        String?
   isActive          Boolean      @default(true)
   commissionedAt    DateTime?
@@ -437,6 +442,9 @@ model ComplianceReport {
   facilityId          String?
   reportType          String       // SUBPART_W | OOOOb | TCEQ_ANNUAL | CUSTOM
   reportingYear       Int
+  /// Null = all basins. Otherwise scopes the report to one AAPG
+  /// basin, which is what EPA treats as the reporting facility.
+  basinCode           String?
   periodStart         DateTime
   periodEnd           DateTime
   status              ReportStatus @default(DRAFT)
@@ -454,6 +462,43 @@ model ComplianceReport {
   @@index([orgId, reportingYear])
   @@index([orgId, status])
 }
+// ============================================================
+// BASINS — AAPG geologic provinces (40 CFR 98.238)
+// ============================================================
+//
+// Subpart W defines a FACILITY for onshore production as all equipment
+// under common ownership within a single AAPG hydrocarbon basin. A
+// well pad is NOT the reporting facility -- the basin rollup is. The
+// 25,000 mt CO2e applicability threshold therefore applies at basin
+// level, not per pad.
+//
+// Seeded from EPA's published basin/county combinations table.
+
+model Basin {
+  /// AAPG geologic province code, e.g. "160A", "220", "395".
+  code     String  @id
+  name     String
+  counties BasinCounty[]
+}
+
+/// County -> basin mapping. Lets basin be DERIVED from a facility's
+/// existing state/county rather than hand-entered.
+model BasinCounty {
+  id         String @id @default(cuid())
+  basinCode  String
+  /// Uppercase county name as published by EPA, e.g. "MIDLAND".
+  county     String
+  /// Two-letter state code.
+  state      String
+  /// County FIPS as published by EPA.
+  countyFips Int?
+
+  basin Basin @relation(fields: [basinCode], references: [code])
+
+  @@unique([state, county, basinCode])
+  @@index([state, county])
+}
+
 // ============================================================
 // IMPORT RUNS — bulk import history
 // ============================================================

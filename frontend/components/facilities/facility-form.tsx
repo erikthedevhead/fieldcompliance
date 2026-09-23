@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, Textarea } from '@/components/ui/select'
+import { basinsApi, type Basin } from '@/lib/reports-api'
 import {
   facilitiesApi,
   FACILITY_TYPES,
@@ -35,6 +36,8 @@ export function FacilityForm({ open, facility, onClose, onSaved }: FacilityFormP
   const [longitude, setLongitude] = useState('')
   const [legalDescription, setLegalDescription] = useState('')
   const [commissionedAt, setCommissionedAt] = useState('')
+  const [basinCode, setBasinCode] = useState('')
+  const [basinSuggestions, setBasinSuggestions] = useState<Basin[]>([])
 
   const [isSaving, setIsSaving] = useState(false)
   const [isDecommissioning, setIsDecommissioning] = useState(false)
@@ -53,6 +56,7 @@ export function FacilityForm({ open, facility, onClose, onSaved }: FacilityFormP
       setLongitude(facility.longitude != null ? String(facility.longitude) : '')
       setLegalDescription(facility.legalDescription ?? '')
       setCommissionedAt(facility.commissionedAt ? facility.commissionedAt.slice(0, 10) : '')
+      setBasinCode(facility.basinCode ?? '')
     } else {
       setName('')
       setType('PRODUCTION_WELL')
@@ -63,9 +67,34 @@ export function FacilityForm({ open, facility, onClose, onSaved }: FacilityFormP
       setLongitude('')
       setLegalDescription('')
       setCommissionedAt('')
+      setBasinCode('')
     }
     setError(null)
   }, [open, facility])
+
+  // Basin derives from state + county via EPA's published table. We
+  // suggest rather than auto-assign: EPA's own 160 vs 160A guidance was
+  // contested for years, so the operator gets the final say.
+  useEffect(() => {
+    let cancelled = false
+    const st = state.trim().toUpperCase()
+    const co = county.trim()
+    if (st.length !== 2 || !co) {
+      setBasinSuggestions([])
+      return
+    }
+    basinsApi
+      .lookup(st, co)
+      .then(b => {
+        if (!cancelled) setBasinSuggestions(b)
+      })
+      .catch(() => {
+        if (!cancelled) setBasinSuggestions([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [state, county])
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
@@ -82,9 +111,14 @@ export function FacilityForm({ open, facility, onClose, onSaved }: FacilityFormP
         longitude: longitude ? Number(longitude) : undefined,
         legalDescription: legalDescription.trim() || undefined,
         commissionedAt: commissionedAt || undefined,
+        basinCode: basinCode.trim().toUpperCase() || undefined,
       }
+      // UpdateFacilityDto does not accept type/state (immutable after
+      // creation) and rejects unknown properties outright, so strip them
+      // rather than sending a request that fails validation.
+      const { type: _t, state: _s, ...updatePayload } = payload
       const saved = isEdit
-        ? await facilitiesApi.update(facility!.id, payload)
+        ? await facilitiesApi.update(facility!.id, updatePayload)
         : await facilitiesApi.create(payload)
       onSaved?.(saved)
       onClose()
@@ -210,6 +244,26 @@ export function FacilityForm({ open, facility, onClose, onSaved }: FacilityFormP
               />
             </Field>
           </div>
+          <Field
+            label="AAPG basin"
+            hint="Optional — derived from county when blank"
+          >
+            <Input
+              value={basinCode}
+              onChange={e => setBasinCode(e.target.value.toUpperCase())}
+              placeholder="e.g. 160A"
+              className="font-mono uppercase"
+            />
+            {basinSuggestions.length > 0 && (
+              <div className="text-[11px] text-ink-muted mt-1">
+                {basinSuggestions.length === 1
+                  ? `Derived from county: ${basinSuggestions[0].code} — ${basinSuggestions[0].name}`
+                  : `County maps to ${basinSuggestions.length} basins — set one explicitly: ` +
+                    basinSuggestions.map(b => b.code).join(', ')}
+              </div>
+            )}
+          </Field>
+
           <div className="grid grid-cols-2 gap-3">
             <Field label="Latitude">
               <Input

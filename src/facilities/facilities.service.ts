@@ -98,7 +98,15 @@ export class FacilitiesService {
 
       return tx.facility.update({
         where: { id },
-        data: dto,
+        data: {
+          ...dto,
+          // Prisma needs a Date for a DateTime column; the DTO carries an
+          // ISO date string. create() already converts — update() did not,
+          // which threw once the DTO stopped stripping this field.
+          commissionedAt: dto.commissionedAt
+            ? new Date(dto.commissionedAt)
+            : undefined,
+        },
       });
     });
   }

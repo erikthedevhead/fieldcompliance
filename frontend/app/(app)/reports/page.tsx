@@ -1,17 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { FileText, Download, Plus } from 'lucide-react'
+import { FileText, Download, Plus, Sheet as SheetIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { facilitiesApi, type Facility } from '@/lib/api-client'
-import { reportsApi, type ComplianceReport } from '@/lib/reports-api'
+import { reportsApi, basinsApi, type ComplianceReport, type Basin } from '@/lib/reports-api'
 
 export default function ReportsPage() {
   const currentYear = new Date().getFullYear()
   const [reports, setReports] = useState<ComplianceReport[] | null>(null)
   const [facilities, setFacilities] = useState<Facility[]>([])
+  const [basins, setBasins] = useState<Basin[]>([])
   const [year, setYear] = useState(currentYear - 1)
-  const [facilityId, setFacilityId] = useState('')
+  const [scope, setScope] = useState('') // '' | 'basin:CODE' | 'facility:ID'
   const [busy, setBusy] = useState(false)
   const [downloadingId, setDownloadingId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -22,6 +23,11 @@ export default function ReportsPage() {
       const [r, f] = await Promise.all([reportsApi.list(), facilitiesApi.list()])
       setReports(r)
       setFacilities(f)
+      try {
+        setBasins(await basinsApi.list())
+      } catch {
+        setBasins([])
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load reports')
     }
@@ -35,7 +41,10 @@ export default function ReportsPage() {
     setBusy(true)
     setError(null)
     try {
-      await reportsApi.generate(year, facilityId || undefined)
+      const opts: { facilityId?: string; basinCode?: string } = {}
+      if (scope.startsWith('basin:')) opts.basinCode = scope.slice(6)
+      if (scope.startsWith('facility:')) opts.facilityId = scope.slice(9)
+      await reportsApi.generate(year, opts)
       await load()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Generation failed')
@@ -44,11 +53,12 @@ export default function ReportsPage() {
     }
   }
 
-  const download = async (r: ComplianceReport) => {
-    setDownloadingId(r.id)
+  const download = async (r: ComplianceReport, kind: 'pdf' | 'xlsx') => {
+    setDownloadingId(`${r.id}:${kind}`)
     setError(null)
     try {
-      await reportsApi.downloadPdf(r)
+      if (kind === 'pdf') await reportsApi.downloadPdf(r)
+      else await reportsApi.downloadExcel(r)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Download failed')
     } finally {
@@ -68,7 +78,8 @@ export default function ReportsPage() {
         </div>
         <h1 className="text-[22px] font-medium tracking-tight text-ink">Reports</h1>
         <p className="text-[13px] text-ink-muted mt-1">
-          Draft Subpart W annual summaries for Designated Representative review.
+          Draft Subpart W summaries for Designated Representative review. Aggregated by AAPG
+          basin — the reporting facility boundary EPA actually uses for onshore production.
         </p>
       </div>
 
@@ -91,15 +102,26 @@ export default function ReportsPage() {
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1">
+          <label className="flex flex-col gap-1 min-w-[280px]">
             <span className="text-[11px] uppercase tracking-wide text-ink-muted">Scope</span>
-            <select className={field} value={facilityId} onChange={e => setFacilityId(e.target.value)}>
-              <option value="">All facilities</option>
-              {facilities.map(f => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
+            <select className={field} value={scope} onChange={e => setScope(e.target.value)}>
+              <option value="">All basins</option>
+              {basins.length > 0 && (
+                <optgroup label="Basin (EPA reporting facility)">
+                  {basins.map(b => (
+                    <option key={b.code} value={`basin:${b.code}`}>
+                      {b.code} — {b.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <optgroup label="Single well pad">
+                {facilities.map(f => (
+                  <option key={f.id} value={`facility:${f.id}`}>
+                    {f.name}
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </label>
           <Button size="sm" onClick={generate} disabled={busy}>
@@ -121,8 +143,8 @@ export default function ReportsPage() {
             <FileText size={20} strokeWidth={1.5} className="mx-auto text-ink-muted mb-2" />
             <div className="text-[15px] font-medium text-ink mb-1">No reports yet</div>
             <p className="text-[13px] text-ink-muted max-w-sm mx-auto">
-              Generate a draft to produce a PDF with the CFR citation behind every number and
-              every assumption flagged.
+              Generate a draft to produce a PDF and an Excel workbook with the CFR citation
+              behind every number.
             </p>
           </div>
         ) : (
@@ -133,7 +155,7 @@ export default function ReportsPage() {
                 <th className="px-4 py-3 font-mono font-normal">Scope</th>
                 <th className="px-4 py-3 font-mono font-normal">Status</th>
                 <th className="px-4 py-3 font-mono font-normal">Generated</th>
-                <th className="px-5 py-3 font-mono font-normal text-right">PDF</th>
+                <th className="px-5 py-3 font-mono font-normal text-right">Download</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-hairline">
@@ -146,7 +168,9 @@ export default function ReportsPage() {
                     <div className="reg-code text-[11px] text-ink-muted">{r.id}</div>
                   </td>
                   <td className="px-4 py-3 text-[13px] text-ink-soft">
-                    {r.facility?.name ?? 'All facilities'}
+                    {r.basinCode
+                      ? `Basin ${r.basinCode}`
+                      : (r.facility?.name ?? 'All basins')}
                   </td>
                   <td className="px-4 py-3">
                     <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-700">
@@ -157,15 +181,24 @@ export default function ReportsPage() {
                   <td className="px-4 py-3 text-[13px] text-ink-soft font-mono">
                     {r.generatedAt ? new Date(r.generatedAt).toLocaleDateString() : '—'}
                   </td>
-                  <td className="px-5 py-3 text-right">
+                  <td className="px-5 py-3 text-right whitespace-nowrap">
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled={downloadingId === r.id}
-                      onClick={() => download(r)}
+                      disabled={downloadingId === `${r.id}:xlsx`}
+                      onClick={() => download(r, 'xlsx')}
+                    >
+                      <SheetIcon size={14} strokeWidth={1.75} />
+                      {downloadingId === `${r.id}:xlsx` ? '…' : 'Excel'}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={downloadingId === `${r.id}:pdf`}
+                      onClick={() => download(r, 'pdf')}
                     >
                       <Download size={14} strokeWidth={1.75} />
-                      {downloadingId === r.id ? 'Preparing…' : 'Download'}
+                      {downloadingId === `${r.id}:pdf` ? '…' : 'PDF'}
                     </Button>
                   </td>
                 </tr>
@@ -176,8 +209,8 @@ export default function ReportsPage() {
       </div>
 
       <p className="text-[12px] text-ink-muted">
-        Drafts are for internal review only. Official submission goes through EPA e-GGRT and
-        must be certified by your Designated Representative.
+        Drafts and workbooks are supporting data for internal review. Official submission goes
+        through EPA e-GGRT and must be certified by your Designated Representative.
       </p>
     </div>
   )

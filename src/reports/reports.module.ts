@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common'
 import { ReportsController } from './reports.controller'
 import { ReportsService } from './reports.service'
+import { BasinsModule } from '../basins/basins.module'
 
 @Module({
+  imports: [BasinsModule],
   controllers: [ReportsController],
   providers: [ReportsService],
   exports: [ReportsService],

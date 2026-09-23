@@ -61,4 +61,11 @@ export class CreateFacilityDto {
   @IsOptional()
   @IsDateString()
   commissionedAt?: string
+
+  /// Optional AAPG basin override (40 CFR 98.238). Normally derived
+  /// from state + county via the BasinCounty table.
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  basinCode?: string
 }
