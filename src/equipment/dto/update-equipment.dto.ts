@@ -5,7 +5,9 @@ import {
   IsNumber,
   IsIn,
   IsDateString,
+  IsBoolean,
   MaxLength,
+  Min,
 } from "class-validator";
 
 // Matches EPA Subpart W's actual pneumatic device categories (Table W-2).
@@ -62,4 +64,48 @@ export class UpdateEquipmentDto {
   @IsOptional()
   @IsNumber()
   throughputMcfd?: number;
+
+  // ---- Compressor rod packing, Eq. W-29E (§98.233(p)(10)) ----
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  operatingHours?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  ventedToAtmosphere?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isSubjectToOOOObCompressorStandards?: boolean;
+
+  // ---- Storage tank Method 3, Eq. W-15A / W-15B (§98.233(j)(3)) ----
+
+  @IsOptional()
+  @IsIn(["CRUDE_OIL", "GAS_CONDENSATE"])
+  liquidType?: "CRUDE_OIL" | "GAS_CONDENSATE";
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  dailyThroughputBbl?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  feedsAtmosphericTank?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  producedWaterBblPerYear?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  feedPressurePsig?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  routesToVruOrFlare?: boolean;
 }

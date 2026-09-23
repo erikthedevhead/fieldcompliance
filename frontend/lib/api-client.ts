@@ -188,6 +188,17 @@ export interface Equipment {
   compressorHp?: number | null
   throughputMcfd?: string | number | null
   facility?: { id: string; name: string; state: string }
+  // Compressor rod packing (Eq. W-29E)
+  operatingHours?: number | null
+  ventedToAtmosphere?: boolean
+  isSubjectToOOOObCompressorStandards?: boolean
+  // Storage tank Method 3 (Eq. W-15A / W-15B) — live on the FEEDING unit
+  liquidType?: 'CRUDE_OIL' | 'GAS_CONDENSATE' | null
+  dailyThroughputBbl?: string | number | null
+  feedsAtmosphericTank?: boolean
+  producedWaterBblPerYear?: string | number | null
+  feedPressurePsig?: string | number | null
+  routesToVruOrFlare?: boolean
 }
 
 export interface CreateEquipmentInput {
@@ -203,6 +214,15 @@ export interface CreateEquipmentInput {
   tankCapacityBbls?: number
   compressorHp?: number
   throughputMcfd?: number
+  operatingHours?: number
+  ventedToAtmosphere?: boolean
+  isSubjectToOOOObCompressorStandards?: boolean
+  liquidType?: 'CRUDE_OIL' | 'GAS_CONDENSATE'
+  dailyThroughputBbl?: number
+  feedsAtmosphericTank?: boolean
+  producedWaterBblPerYear?: number
+  feedPressurePsig?: number
+  routesToVruOrFlare?: boolean
 }
 
 export type UpdateEquipmentInput = Partial<Omit<CreateEquipmentInput, 'facilityId' | 'category'>>
@@ -281,7 +301,17 @@ export interface CalculationResult {
     co2eMetricTons: number
     byPollutant: Record<string, number>
   }
+  skipped: SkippedEquipment[]
   persisted: number
+}
+
+export interface SkippedEquipment {
+  equipmentId: string | null
+  equipmentTag: string | null
+  equipmentCategory: string
+  code: string
+  reason: string
+  remedy?: string
 }
 
 export interface CalculateRequest {

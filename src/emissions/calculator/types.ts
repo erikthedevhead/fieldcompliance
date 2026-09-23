@@ -61,6 +61,33 @@ export interface MethodologyResult {
   notes?: string
 }
 
+/**
+ * An equipment item the calculator deliberately did NOT emit a record for.
+ *
+ * A compliance calculation that silently omits a source is worse than one
+ * that reports zero: the reader cannot tell the difference between "no
+ * emissions" and "we had no idea". Every `continue` in the orchestrator
+ * must record one of these.
+ */
+export interface SkippedEquipment {
+  equipmentId: string | null
+  equipmentTag: string | null
+  equipmentCategory: string
+  /** Machine-readable reason code. */
+  code:
+    | 'MISSING_PNEUMATIC_TYPE'
+    | 'NO_ACTIVE_FACTOR'
+    | 'COMPRESSOR_REQUIRES_MEASUREMENT'
+    | 'NOT_VENTED_TO_ATMOSPHERE'
+    | 'TANK_THROUGHPUT_ABOVE_METHOD_3'
+    | 'TANK_MISSING_FEED_PRESSURE'
+    | 'TANK_ROUTED_TO_VRU_OR_FLARE'
+  /** Human-readable explanation, shown in the UI. */
+  reason: string
+  /** What the user should do about it, when there is an action. */
+  remedy?: string
+}
+
 /** Aggregate result for the whole facility for a period. */
 export interface CalculationResult {
   facilityId: string
@@ -73,4 +100,6 @@ export interface CalculationResult {
     /** Per-pollutant mass totals in metric tons. */
     byPollutant: Record<string, number>
   }
+  /** Equipment deliberately omitted, with reasons. Never silently empty. */
+  skipped: SkippedEquipment[]
 }

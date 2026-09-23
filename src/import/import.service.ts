@@ -30,6 +30,8 @@ export class ImportService {
     orgId: string,
     buffer: Buffer,
     commit: boolean,
+    userId?: string,
+    filename?: string,
   ): Promise<ImportReport> {
     const raw = await parseBuffer(buffer)
     if (raw.length === 0) {
@@ -77,6 +79,7 @@ export class ImportService {
       }
     }
 
+    const KIND = 'facilities'
     return this.prisma.asOrg(orgId, async tx => {
       // Plan-limit check across the whole batch
       const org = await tx.organization.findUnique({
@@ -114,7 +117,10 @@ export class ImportService {
         createdCount: 0,
       }
 
-      if (!commit || errors.length > 0) return report
+      if (!commit || errors.length > 0) {
+        await this.recordRun(tx, orgId, KIND, report, userId, filename)
+        return report
+      }
 
       // All-or-nothing: we are already inside asOrg's transaction
       for (const d of dtos) {
@@ -128,6 +134,7 @@ export class ImportService {
       }
       report.committed = true
       report.createdCount = dtos.length
+      await this.recordRun(tx, orgId, KIND, report, userId, filename)
       return report
     })
   }
@@ -139,12 +146,15 @@ export class ImportService {
     orgId: string,
     buffer: Buffer,
     commit: boolean,
+    userId?: string,
+    filename?: string,
   ): Promise<ImportReport> {
     const raw = await parseBuffer(buffer)
     if (raw.length === 0) {
       throw new BadRequestException('File contains no data rows')
     }
 
+    const KIND = 'equipment'
     return this.prisma.asOrg(orgId, async tx => {
       const facilities = await tx.facility.findMany({
         where: { orgId, isActive: true },
@@ -256,7 +266,10 @@ export class ImportService {
         createdCount: 0,
       }
 
-      if (!commit || errors.length > 0) return report
+      if (!commit || errors.length > 0) {
+        await this.recordRun(tx, orgId, KIND, report, userId, filename)
+        return report
+      }
 
       for (const d of dtos) {
         const { _facilityId, ...pure } = d
@@ -270,7 +283,50 @@ export class ImportService {
       }
       report.committed = true
       report.createdCount = dtos.length
+      await this.recordRun(tx, orgId, KIND, report, userId, filename)
       return report
     })
+  }
+
+  /**
+   * Record every import attempt — dry runs included. A rejected batch is
+   * as much a part of the audit trail as a committed one.
+   */
+  private async recordRun(
+    tx: any,
+    orgId: string,
+    kind: string,
+    report: ImportReport,
+    userId?: string,
+    filename?: string,
+  ): Promise<void> {
+    await tx.importRun.create({
+      data: {
+        orgId,
+        userId: userId ?? null,
+        kind,
+        filename: filename ?? null,
+        totalRows: report.totalRows,
+        createdCount: report.createdCount,
+        status: report.committed
+          ? 'COMMITTED'
+          : report.errors.length > 0
+            ? 'REJECTED'
+            : 'VALIDATED',
+        report: report as any,
+      },
+    })
+  }
+
+  /** Bulk import history, newest first. */
+  async listRuns(orgId: string, limit = 25) {
+    return this.prisma.asOrg(orgId, tx =>
+      tx.importRun.findMany({
+        where: { orgId },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+        include: { user: { select: { firstName: true, lastName: true } } },
+      }),
+    )
   }
 }

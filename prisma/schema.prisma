@@ -114,6 +114,7 @@ model Organization {
   reports          ComplianceReport[]
   auditLogs        AuditLog[]
   apiKeys          ApiKey[]
+  importRuns       ImportRun[]
   @@index([slug])
 }
 // ============================================================
@@ -143,6 +144,7 @@ model User {
   auditLogs         AuditLog[]
   inspections       Inspection[]
   assignedDeadlines Deadline[]
+  importRuns        ImportRun[]
   @@index([orgId])
   @@index([email])
 }
@@ -452,6 +454,31 @@ model ComplianceReport {
   @@index([orgId, reportingYear])
   @@index([orgId, status])
 }
+// ============================================================
+// IMPORT RUNS — bulk import history
+// ============================================================
+
+model ImportRun {
+  id           String   @id @default(cuid())
+  orgId        String
+  userId       String?
+  /// "facilities" | "equipment"
+  kind         String
+  filename     String?
+  totalRows    Int
+  createdCount Int      @default(0)
+  /// "VALIDATED" (dry run) | "COMMITTED" | "REJECTED"
+  status       String
+  /// Full per-row error and warning report as returned to the client.
+  report       Json
+  createdAt    DateTime @default(now())
+
+  org  Organization @relation(fields: [orgId], references: [id])
+  user User?        @relation(fields: [userId], references: [id])
+
+  @@index([orgId, createdAt])
+}
+
 // ============================================================
 // AUDIT LOG — Immutable, append-only
 // ============================================================

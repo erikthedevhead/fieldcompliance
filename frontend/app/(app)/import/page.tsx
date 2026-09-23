@@ -1,14 +1,16 @@
 'use client'
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Upload, FileSpreadsheet, Download, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   uploadImportFile,
   downloadTemplate,
+  fetchImportHistory,
   type ImportKind,
   type ImportReport,
+  type ImportRun,
 } from '@/lib/import-api'
 
 export default function ImportPage() {
@@ -19,6 +21,19 @@ export default function ImportPage() {
   const [error, setError] = useState<string | null>(null)
   const [isDragOver, setIsDragOver] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const [importHistory, setImportHistory] = useState<ImportRun[] | null>(null)
+
+  const loadHistory = useCallback(async () => {
+    try {
+      setImportHistory(await fetchImportHistory())
+    } catch {
+      setImportHistory([])
+    }
+  }, [])
+
+  useEffect(() => {
+    loadHistory()
+  }, [loadHistory])
 
   const reset = useCallback(() => {
     setFile(null)
@@ -59,6 +74,7 @@ export default function ImportPage() {
     try {
       const r = await uploadImportFile(kind, file, true)
       setReport(r)
+      loadHistory()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed')
     } finally {
@@ -200,6 +216,7 @@ export default function ImportPage() {
           </div>
         </div>
       )}
+      <ImportHistory runs={importHistory} />
     </div>
   )
 }
@@ -259,5 +276,64 @@ function ValidationReport({ report }: { report: ImportReport }) {
         </div>
       ))}
     </div>
+  )
+}
+
+function ImportHistory({ runs }: { runs: ImportRun[] | null }) {
+  if (runs === null) return null
+  if (runs.length === 0) return null
+  return (
+    <div className="rounded-card border border-hairline bg-canvas-card overflow-hidden">
+      <div className="px-5 py-3 border-b border-hairline text-[13px] font-medium text-ink">
+        Import history
+      </div>
+      <table className="w-full">
+        <thead>
+          <tr className="text-left text-[10px] uppercase tracking-wide text-ink-muted border-b border-hairline">
+            <th className="px-5 py-2 font-mono font-normal">File</th>
+            <th className="px-4 py-2 font-mono font-normal">Type</th>
+            <th className="px-4 py-2 font-mono font-normal">Rows</th>
+            <th className="px-4 py-2 font-mono font-normal">Status</th>
+            <th className="px-4 py-2 font-mono font-normal">By</th>
+            <th className="px-5 py-2 font-mono font-normal text-right">When</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-hairline">
+          {runs.map(r => (
+            <tr key={r.id} className="hover:bg-canvas transition-colors">
+              <td className="px-5 py-2.5 text-[13px] text-ink">{r.filename ?? '—'}</td>
+              <td className="px-4 py-2.5 text-[13px] text-ink-soft capitalize">{r.kind}</td>
+              <td className="px-4 py-2.5 text-[13px] text-ink-soft font-mono">
+                {r.status === 'COMMITTED' ? `${r.createdCount} of ${r.totalRows}` : r.totalRows}
+              </td>
+              <td className="px-4 py-2.5">
+                <RunStatus status={r.status} />
+              </td>
+              <td className="px-4 py-2.5 text-[13px] text-ink-soft">
+                {r.user ? `${r.user.firstName} ${r.user.lastName}` : '—'}
+              </td>
+              <td className="px-5 py-2.5 text-[13px] text-ink-muted font-mono text-right">
+                {new Date(r.createdAt).toLocaleString()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function RunStatus({ status }: { status: ImportRun['status'] }) {
+  const map = {
+    COMMITTED: ['text-ok', 'bg-ok', 'Imported'],
+    REJECTED: ['text-overdue', 'bg-overdue', 'Rejected'],
+    VALIDATED: ['text-ink-muted', 'bg-ink-muted', 'Checked only'],
+  } as const
+  const [text, dot, label] = map[status] ?? map.VALIDATED
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-[11px] ${text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+      {label}
+    </span>
   )
 }

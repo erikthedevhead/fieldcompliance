@@ -14,6 +14,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { label: 'Dashboard', href: '/', isActive: p => p === '/' },
   { label: 'Facilities', href: '/facilities', isActive: p => p.startsWith('/facilities') },
+  { label: 'Reports', href: '/reports', isActive: p => p.startsWith('/reports') },
   { label: 'Team', href: '/team', isActive: p => p.startsWith('/team') },
 ]
 

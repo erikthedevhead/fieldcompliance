@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ProvenanceChain, type ProvenanceStep } from './provenance-chain'
-import { emissionsApi, type Facility, type CalculationResult, type CalculationRecord } from '@/lib/api-client'
+import { emissionsApi, type Facility, type CalculationResult, type CalculationRecord, type SkippedEquipment } from '@/lib/api-client'
 import { formatMetricTons } from '@/lib/utils'
 
 interface CalculatorPanelProps {
@@ -188,10 +188,12 @@ export function CalculatorPanel({
               What runs
             </div>
             <p className="text-[13px] text-ink-soft leading-relaxed">
-              The calculator walks the facility's active equipment and applies the EPA-approved
-              methodology for each type: AP-42 factor calc for pneumatic controllers and tanks,
-              Subpart W rod-packing calc for reciprocating compressors, average-factor calc for
-              fugitives. Every result is fully traceable back to its CFR citation.
+              The calculator walks the facility&rsquo;s active equipment and applies the verified
+              Subpart W methodology for each source: Eq. W-1B for pneumatic controllers,
+              Table W-1 major-equipment population factors for equipment leaks, Eq. W-29E for
+              reciprocating compressor rod packing, and Method 3 (Eq. W-15A / W-15B) for
+              atmospheric storage tanks. Every result traces back to its CFR citation, and
+              anything the calculator declines to estimate is listed explicitly.
             </p>
           </div>
         </div>
@@ -247,6 +249,8 @@ function CalculationResults({ result }: { result: CalculationResult }) {
         ))}
       </div>
 
+      {result.skipped?.length > 0 && <SkippedPanel skipped={result.skipped} />}
+
       {/* Per-equipment provenance */}
       <div>
         <div className="reg-code text-ink-muted text-[10px] uppercase tracking-wide mb-3">
@@ -262,6 +266,39 @@ function CalculationResults({ result }: { result: CalculationResult }) {
             />
           ))}
         </div>
+      </div>
+    </div>
+  )
+}
+
+function SkippedPanel({ skipped }: { skipped: SkippedEquipment[] }) {
+  return (
+    <div className="rounded-card border border-amber-500/30 bg-amber-50/40 overflow-hidden">
+      <div className="px-4 py-3 border-b border-amber-500/20">
+        <div className="text-[13px] font-medium text-amber-800">
+          {skipped.length} item{skipped.length === 1 ? '' : 's'} not included in this total
+        </div>
+        <div className="text-[12px] text-amber-700/80 mt-0.5">
+          These are omissions, not zeros. Review before treating the total as complete.
+        </div>
+      </div>
+      <div className="divide-y divide-amber-500/15">
+        {skipped.map((s, i) => (
+          <div key={i} className="px-4 py-3">
+            <div className="flex items-baseline gap-2">
+              <span className="text-[13px] font-medium text-ink">
+                {s.equipmentTag ?? 'Facility-wide'}
+              </span>
+              <span className="reg-code text-[10px] uppercase tracking-wide text-amber-700">
+                {s.code.replace(/_/g, ' ').toLowerCase()}
+              </span>
+            </div>
+            <div className="text-[13px] text-ink-soft mt-1">{s.reason}</div>
+            {s.remedy && (
+              <div className="text-[12px] text-amber-800 mt-1">→ {s.remedy}</div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   )

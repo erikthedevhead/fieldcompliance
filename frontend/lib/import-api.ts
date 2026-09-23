@@ -19,6 +19,17 @@ export interface ImportReport {
   createdCount: number
 }
 
+export interface ImportRun {
+  id: string
+  kind: string
+  filename: string | null
+  totalRows: number
+  createdCount: number
+  status: 'VALIDATED' | 'COMMITTED' | 'REJECTED'
+  createdAt: string
+  user?: { firstName: string; lastName: string } | null
+}
+
 function authHeader(): Record<string, string> {
   const token = useAuthStore.getState().accessToken
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -32,9 +43,8 @@ function handleUnauthorized(status: number) {
 }
 
 /**
- * Multipart upload — deliberately does NOT set Content-Type so the
- * browser adds the multipart boundary itself. This is why this lives
- * outside api-client's JSON-only request() helper.
+ * Multipart upload — deliberately does NOT set Content-Type so the browser
+ * adds the multipart boundary itself.
  */
 export async function uploadImportFile(
   kind: ImportKind,
@@ -58,15 +68,25 @@ export async function uploadImportFile(
   return data as ImportReport
 }
 
-/** Authed template download → triggers a browser save dialog. */
+export async function fetchImportHistory(limit = 25): Promise<ImportRun[]> {
+  const response = await fetch(`${API_BASE}/import/history?limit=${limit}`, {
+    headers: { 'Content-Type': 'application/json', ...authHeader() },
+  })
+  handleUnauthorized(response.status)
+  const isJson = (response.headers.get('content-type') || '').includes('application/json')
+  const data = isJson ? await response.json() : null
+  if (!response.ok) {
+    throw new ApiError(response.status, data?.message || 'History load failed')
+  }
+  return data as ImportRun[]
+}
+
 export async function downloadTemplate(kind: ImportKind): Promise<void> {
   const response = await fetch(`${API_BASE}/import/templates/${kind}.csv`, {
     headers: authHeader(),
   })
   handleUnauthorized(response.status)
-  if (!response.ok) {
-    throw new ApiError(response.status, 'Template download failed')
-  }
+  if (!response.ok) throw new ApiError(response.status, 'Template download failed')
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

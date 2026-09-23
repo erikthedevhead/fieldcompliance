@@ -14,6 +14,19 @@ import {
 } from "@/lib/api-client";
 import { FieldGroup, Field } from "./facility-form";
 
+/**
+ * Converts a form text value to a number for the payload, or null when
+ * the field is genuinely empty. Never returns 0 for an empty string --
+ * Number('') === 0 in JS, which previously caused clearing a field to
+ * silently persist as a real zero value instead of clearing it.
+ */
+function numOrNull(v: string): number | null {
+  const trimmed = v.trim();
+  if (trimmed === '') return null;
+  const n = Number(trimmed);
+  return Number.isNaN(n) ? null : n;
+}
+
 interface EquipmentFormProps {
   open: boolean;
   facilityId: string;
@@ -48,6 +61,18 @@ export function EquipmentForm({
   const [tankCapacityBbls, setTankCapacityBbls] = useState("");
   const [compressorHp, setCompressorHp] = useState("");
   const [throughputMcfd, setThroughputMcfd] = useState("");
+
+  // Subpart W — compressor rod packing (Eq. W-29E)
+  const [operatingHours, setOperatingHours] = useState("");
+  const [ventedToAtmosphere, setVentedToAtmosphere] = useState(true);
+  const [isOOOOb, setIsOOOOb] = useState(false);
+  // Subpart W — tank Method 3 (Eq. W-15A / W-15B), on the FEEDING unit
+  const [feedsAtmosphericTank, setFeedsAtmosphericTank] = useState(false);
+  const [liquidType, setLiquidType] = useState<"CRUDE_OIL" | "GAS_CONDENSATE">("CRUDE_OIL");
+  const [dailyThroughputBbl, setDailyThroughputBbl] = useState("");
+  const [producedWaterBblPerYear, setProducedWaterBblPerYear] = useState("");
+  const [feedPressurePsig, setFeedPressurePsig] = useState("");
+  const [routesToVruOrFlare, setRoutesToVruOrFlare] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
@@ -84,6 +109,25 @@ export function EquipmentForm({
           ? String(equipment.throughputMcfd)
           : "",
       );
+      setOperatingHours(
+        equipment.operatingHours != null ? String(equipment.operatingHours) : "",
+      );
+      setVentedToAtmosphere(equipment.ventedToAtmosphere !== false);
+      setIsOOOOb(!!equipment.isSubjectToOOOObCompressorStandards);
+      setFeedsAtmosphericTank(!!equipment.feedsAtmosphericTank);
+      setLiquidType((equipment.liquidType as "CRUDE_OIL" | "GAS_CONDENSATE") ?? "CRUDE_OIL");
+      setDailyThroughputBbl(
+        equipment.dailyThroughputBbl != null ? String(equipment.dailyThroughputBbl) : "",
+      );
+      setProducedWaterBblPerYear(
+        equipment.producedWaterBblPerYear != null
+          ? String(equipment.producedWaterBblPerYear)
+          : "",
+      );
+      setFeedPressurePsig(
+        equipment.feedPressurePsig != null ? String(equipment.feedPressurePsig) : "",
+      );
+      setRoutesToVruOrFlare(!!equipment.routesToVruOrFlare);
     } else {
       setTag("");
       setCategory("PNEUMATIC_CONTROLLER");
@@ -96,6 +140,15 @@ export function EquipmentForm({
       setTankCapacityBbls("");
       setCompressorHp("");
       setThroughputMcfd("");
+      setOperatingHours("");
+      setVentedToAtmosphere(true);
+      setIsOOOOb(false);
+      setFeedsAtmosphericTank(false);
+      setLiquidType("CRUDE_OIL");
+      setDailyThroughputBbl("");
+      setProducedWaterBblPerYear("");
+      setFeedPressurePsig("");
+      setRoutesToVruOrFlare(false);
     }
     setError(null);
   }, [open, equipment]);
@@ -105,7 +158,7 @@ export function EquipmentForm({
     setIsSaving(true);
     setError(null);
     try {
-      const payload: CreateEquipmentInput = {
+      const payload: any = {
         facilityId,
         tag: tag.trim(),
         category,
@@ -122,18 +175,31 @@ export function EquipmentForm({
       ) {
         payload.pneumaticType = pneumaticType;
       }
-      if (category === "STORAGE_TANK" && tankCapacityBbls) {
-        payload.tankCapacityBbls = Number(tankCapacityBbls);
+      if (category === "STORAGE_TANK") {
+        payload.tankCapacityBbls = numOrNull(tankCapacityBbls);
       }
       if (
         (category === "COMPRESSOR_RECIPROCATING" ||
           category === "COMPRESSOR_CENTRIFUGAL") &&
-        compressorHp
+        true
       ) {
-        payload.compressorHp = Number(compressorHp);
+        payload.compressorHp = numOrNull(compressorHp);
       }
-      if (throughputMcfd) {
-        payload.throughputMcfd = Number(throughputMcfd);
+      payload.throughputMcfd = numOrNull(throughputMcfd);
+      if (category === "COMPRESSOR_RECIPROCATING") {
+        payload.operatingHours = numOrNull(operatingHours);
+        payload.ventedToAtmosphere = ventedToAtmosphere;
+        payload.isSubjectToOOOObCompressorStandards = isOOOOb;
+      }
+      if (category === "STORAGE_TANK") {
+        payload.routesToVruOrFlare = routesToVruOrFlare;
+      }
+      payload.feedsAtmosphericTank = feedsAtmosphericTank;
+      if (feedsAtmosphericTank) {
+        payload.liquidType = liquidType;
+        payload.dailyThroughputBbl = numOrNull(dailyThroughputBbl);
+        payload.producedWaterBblPerYear = numOrNull(producedWaterBblPerYear);
+        payload.feedPressurePsig = numOrNull(feedPressurePsig);
       }
 
       let saved;
@@ -303,7 +369,7 @@ export function EquipmentForm({
             {isPneumatic && (
               <Field
                 label="Pneumatic type"
-                hint="Determines the AP-42 emission factor"
+                hint="Selects the Table W-1 factor (Eq. W-1B). Required — the calculator never guesses."
               >
                 <Select
                   value={pneumaticType}
@@ -365,6 +431,148 @@ export function EquipmentForm({
           </FieldGroup>
         )}
       </form>
+
+      <div className="space-y-5 mt-5">
+        {isCompressor && category === "COMPRESSOR_RECIPROCATING" && (
+          <FieldGroup label="Rod packing — 40 CFR 98.233(p)">
+            <Field
+              label="Operating-mode hours"
+              hint="Hours in OPERATING mode this year. Standby-pressurized time does not count toward Eq. W-29E."
+            >
+              <Input
+                type="number"
+                step="1"
+                value={operatingHours}
+                onChange={(e) => setOperatingHours(e.target.value)}
+                placeholder="8760"
+                className="font-mono"
+              />
+            </Field>
+            <label className="flex items-start gap-2 text-[13px] text-ink">
+              <input
+                type="checkbox"
+                checked={ventedToAtmosphere}
+                onChange={(e) => setVentedToAtmosphere(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                Vents directly to atmosphere
+                <span className="block text-[12px] text-ink-muted">
+                  Uncheck if rod packing routes to a flare, combustion, or vapor recovery
+                  system — §98.233(p) then does not require it.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-[13px] text-ink">
+              <input
+                type="checkbox"
+                checked={isOOOOb}
+                onChange={(e) => setIsOOOOb(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                Subject to OOOOb §60.5385b
+                <span className="block text-[12px] text-ink-muted">
+                  If checked, emissions must be MEASURED on the §60.5385b schedule. The
+                  factor method is not permitted and this compressor will be skipped.
+                </span>
+              </span>
+            </label>
+          </FieldGroup>
+        )}
+
+        {isTank && (
+          <FieldGroup label="Tank controls — 40 CFR 98.233(j)(4)">
+            <label className="flex items-start gap-2 text-[13px] text-ink">
+              <input
+                type="checkbox"
+                checked={routesToVruOrFlare}
+                onChange={(e) => setRoutesToVruOrFlare(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span>
+                Routes to a vapor recovery system or flare
+                <span className="block text-[12px] text-ink-muted">
+                  Requires hours-based apportionment (an open thief hatch means 0% capture).
+                  Not yet supported — such tanks are omitted from the calculation.
+                </span>
+              </span>
+            </label>
+          </FieldGroup>
+        )}
+
+        <FieldGroup label="Feeds an atmospheric tank — 40 CFR 98.233(j)(3)">
+          <label className="flex items-start gap-2 text-[13px] text-ink">
+            <input
+              type="checkbox"
+              checked={feedsAtmosphericTank}
+              onChange={(e) => setFeedsAtmosphericTank(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              This unit feeds liquids or produced water directly to an atmospheric tank
+              <span className="block text-[12px] text-ink-muted">
+                Eq. W-15A counts feeding units — separators, wells, non-separator equipment —
+                not the tanks themselves.
+              </span>
+            </span>
+          </label>
+
+          {feedsAtmosphericTank && (
+            <>
+              <Field label="Liquid type">
+                <Select
+                  value={liquidType}
+                  onChange={(e) =>
+                    setLiquidType(e.target.value as "CRUDE_OIL" | "GAS_CONDENSATE")
+                  }
+                >
+                  <option value="CRUDE_OIL">Crude oil (4.2 Mscf CH₄/yr)</option>
+                  <option value="GAS_CONDENSATE">Gas condensate (17.6 Mscf CH₄/yr)</option>
+                </Select>
+              </Field>
+              <Field
+                label="Throughput (bbl/day)"
+                hint="Annual average. Method 3 applies only below 10 bbl/day; at or above that, Method 1 or 2 is required and this unit is skipped."
+              >
+                <Input
+                  type="number"
+                  step="any"
+                  value={dailyThroughputBbl}
+                  onChange={(e) => setDailyThroughputBbl(e.target.value)}
+                  placeholder="6"
+                  className="font-mono"
+                />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Produced water (bbl/yr)">
+                  <Input
+                    type="number"
+                    step="any"
+                    value={producedWaterBblPerYear}
+                    onChange={(e) => setProducedWaterBblPerYear(e.target.value)}
+                    placeholder="10000"
+                    className="font-mono"
+                  />
+                </Field>
+                <Field
+                  label="Feed pressure (psig)"
+                  hint="Sets the W-15B tier — a 33.9× swing"
+                >
+                  <Input
+                    type="number"
+                    step="any"
+                    value={feedPressurePsig}
+                    onChange={(e) => setFeedPressurePsig(e.target.value)}
+                    placeholder="120"
+                    className="font-mono"
+                  />
+                </Field>
+              </div>
+            </>
+          )}
+        </FieldGroup>
+      </div>
     </Sheet>
   );
 }

@@ -8,15 +8,18 @@
  * Methodology functions are pure and don't touch Prisma — only this service
  * does, so the methodology layer is fully unit-testable in isolation.
  *
- * 2026-08-05 EQUIPMENT LEAKS REWRITE: the fugitive component-count
- * heuristic (25 components/equipment × fabricated per-component factor)
- * is replaced by the verified Table W-1 major-equipment population method
- * (§98.233(r)). Each mapped equipment item gets its own leak record.
- * calculateFugitive / fugitive.ts is retired.
+ * 2026-08-18 SKIPPED-EQUIPMENT TRACKING: every place this orchestrator
+ * declines to emit a record now records a SkippedEquipment entry with a
+ * reason and, where applicable, a remedy. A compliance calculation that
+ * silently omits a source is worse than one that reports zero — the reader
+ * cannot distinguish "no emissions" from "we had no idea".
  *
- * NOTE: a compressor produces TWO records by design — rod-packing venting
- * (§98.233(p)) and an equipment leak (§98.233(r)). These are separate
- * source types in Subpart W, not double counting.
+ * Verified methodologies (all against live eCFR):
+ *   Pneumatics          §98.233(a)      Eq. W-1B      Table W-1
+ *   Equipment leaks     §98.233(r)      population    Table W-1 major equipment
+ *   Compressor packing  §98.233(p)(10)  Eq. W-29E
+ *   Tanks, liquids      §98.233(j)(3)   Eq. W-15A     Method 3
+ *   Tanks, water        §98.233(j)(3)   Eq. W-15B     Method 3
  */
 
 import { Injectable, NotFoundException, Logger } from "@nestjs/common";
@@ -25,33 +28,27 @@ import {
   CalculationInput,
   CalculationResult,
   MethodologyResult,
+  SkippedEquipment,
   ActivityDataOverrides,
 } from "./types";
-import {
-  hoursBetween,
-  fractionOfYear,
-  DEFAULT_CH4_MOLE_FRACTION,
-} from "./units";
+import { hoursBetween, DEFAULT_CH4_MOLE_FRACTION } from "./units";
 import { calculatePneumatic } from "./methodologies/pneumatic";
+import {
+  calculateEquipmentLeak,
+  LeakServiceType,
+  MajorEquipmentType,
+} from "./methodologies/equipment-leaks";
+import { calculateCompressorRodPacking } from "./methodologies/compressor-rod-packing";
 import {
   calculateTankHydrocarbonMethod3,
   calculateTankProducedWaterMethod3,
   producedWaterTier,
   METHOD_3_MAX_BBL_PER_DAY,
 } from "./methodologies/storage-tank-method3";
-import { calculateCompressorRodPacking } from "./methodologies/compressor-rod-packing";
-import {
-  calculateEquipmentLeak,
-  LeakServiceType,
-  MajorEquipmentType,
-} from "./methodologies/equipment-leaks";
 
 /**
- * EquipmentCategory → Table W-1 major-equipment row (§98.233(r) population
- * method). Categories not listed (pneumatics, flares, fugitive-component
- * placeholder rows) are not "major equipment" in Table W-1 and get no leak
- * record. HEATER is in Table W-1 but has no EquipmentCategory yet (schema
- * backlog).
+ * EquipmentCategory → Table W-1 major-equipment row (§98.233(r)).
+ * Categories not listed are not "major equipment" and get no leak record.
  */
 const LEAK_MAJOR_EQUIPMENT_MAP: Record<string, MajorEquipmentType> = {
   WELLHEAD: "WELLHEAD",
@@ -63,12 +60,7 @@ const LEAK_MAJOR_EQUIPMENT_MAP: Record<string, MajorEquipmentType> = {
   STORAGE_TANK: "STORAGE_VESSEL",
 };
 
-/**
- * Platform default leak service type. Table W-1 has separate gas-service
- * and crude-service factor blocks; Facility has no serviceType field yet
- * (schema backlog), so we default to GAS and flag the assumption in
- * activityData — same pattern as DEFAULT_CH4_MOLE_FRACTION.
- */
+/** Table W-1 has separate gas- and crude-service blocks; no field yet. */
 const DEFAULT_LEAK_SERVICE_TYPE: LeakServiceType = "GAS";
 
 @Injectable()
@@ -77,10 +69,6 @@ export class CalculatorService {
 
   constructor(private prisma: PrismaService) {}
 
-  /**
-   * Calculate emissions for a facility over a reporting period.
-   * Does NOT persist results — call persistResults() separately.
-   */
   async calculate(
     input: CalculationInput,
     orgId: string,
@@ -88,31 +76,46 @@ export class CalculatorService {
     return this.prisma.asOrg(orgId, async (tx) => {
       const facility = await tx.facility.findFirst({
         where: { id: input.facilityId, orgId },
-        include: {
-          equipment: { where: { isActive: true } },
-        },
+        include: { equipment: { where: { isActive: true } } },
       });
-      if (!facility) {
-        throw new NotFoundException("Facility not found");
-      }
+      if (!facility) throw new NotFoundException("Facility not found");
 
       const records: MethodologyResult[] = [];
+      const skipped: SkippedEquipment[] = [];
       const periodHours = hoursBetween(input.periodStart, input.periodEnd);
       const overrides = input.activityData ?? {};
 
-      // §98.233(u)(2): gas composition is facility-specific. Fall back to
-      // the platform default only when no gas analysis is on file, and
-      // flag the assumption so it shows in the provenance chain.
+      const skip = (
+        eq: { id: string; tag: string; category: string } | null,
+        code: SkippedEquipment["code"],
+        reason: string,
+        remedy?: string,
+      ) => {
+        skipped.push({
+          equipmentId: eq?.id ?? null,
+          equipmentTag: eq?.tag ?? null,
+          equipmentCategory: eq?.category ?? "FACILITY",
+          code,
+          reason,
+          remedy,
+        });
+        this.logger.warn(
+          `[skipped] ${eq?.tag ?? "facility"} (${code}): ${reason}`,
+        );
+      };
+
+      // §98.233(u)(2): gas composition is facility-specific.
       const ch4Fraction =
         facility.ch4MoleFraction != null
           ? Number(facility.ch4MoleFraction)
           : DEFAULT_CH4_MOLE_FRACTION;
       const compositionAssumed = facility.ch4MoleFraction == null;
+      const co2Fraction =
+        facility.co2MoleFraction != null ? Number(facility.co2MoleFraction) : 0;
       if (compositionAssumed) {
         this.logger.warn(
-          `Facility ${facility.id} has no ch4MoleFraction on file — ` +
-            `using platform default ${DEFAULT_CH4_MOLE_FRACTION}. ` +
-            `Provide a facility gas analysis for Subpart W fidelity.`,
+          `Facility ${facility.id} has no ch4MoleFraction — using platform ` +
+            `default ${DEFAULT_CH4_MOLE_FRACTION}.`,
         );
       }
 
@@ -121,20 +124,36 @@ export class CalculatorService {
         (e) => e.category === "PNEUMATIC_CONTROLLER",
       );
       for (const pc of pneumatics) {
+        if (!pc.pneumaticType) {
+          skip(
+            pc,
+            "MISSING_PNEUMATIC_TYPE",
+            "No pneumatic device type recorded. A compliance calculation must never guess which Table W-1 factor applies.",
+            "Set the device type to continuous high-bleed, continuous low-bleed, or intermittent bleed.",
+          );
+          continue;
+        }
         const factor = await this.lookupFactor(
           tx,
           "PNEUMATIC_CONTROLLER",
           "CH4",
           pc.pneumaticType,
         );
-        if (!factor) continue;
-        const hours = overrides.pneumaticHours ?? periodHours;
+        if (!factor) {
+          skip(
+            pc,
+            "NO_ACTIVE_FACTOR",
+            `No active emission factor for pneumatic type ${pc.pneumaticType}.`,
+            "Contact support — the factor table may be out of date.",
+          );
+          continue;
+        }
         records.push(
           calculatePneumatic({
             equipmentId: pc.id,
             equipmentTag: pc.tag,
             pneumaticType: pc.pneumaticType,
-            hoursOperated: hours,
+            hoursOperated: overrides.pneumaticHours ?? periodHours,
             ch4MoleFraction: ch4Fraction,
             isCompositionAssumed: compositionAssumed,
             factor,
@@ -142,46 +161,53 @@ export class CalculatorService {
         );
       }
 
-      // ---- Atmospheric storage tanks, Calculation Method 3
-      //      (§98.233(j)(3), Eq. W-15A hydrocarbon liquids / W-15B
-      //      produced water). Counts FEEDING units, not tanks. Streams
-      //      >= 10 bbl/day need Method 1 or 2 (not implemented) and are
-      //      skipped. Tanks routed to a VRU or flare need the (j)(4)
-      //      hours apportionment and are skipped. ----
-      const tanksRouted = facility.equipment.some(
+      // ---- Atmospheric storage tanks, Method 3 (§98.233(j)(3)) ----
+      for (const tank of facility.equipment.filter(
         (e) => e.category === "STORAGE_TANK" && (e as any).routesToVruOrFlare,
-      );
-      if (tanksRouted) {
-        this.logger.warn(
-          `Facility ${facility.id} has tanks routed to a VRU or flare — ` +
-            `§98.233(j)(4) hours-based apportionment is not implemented. ` +
-            `Those tank emissions are omitted.`,
+      )) {
+        skip(
+          tank,
+          "TANK_ROUTED_TO_VRU_OR_FLARE",
+          "Tank routes emissions to a vapor recovery system or flare. §98.233(j)(4) requires hours-based apportionment, including treating an open thief hatch as 0% capture.",
+          "Not yet supported. Tank emissions for this unit are omitted from the total.",
         );
       }
 
-      const tankFeeders = facility.equipment.filter(
+      for (const unit of facility.equipment.filter(
         (e) => (e as any).feedsAtmosphericTank,
-      );
-      for (const unit of tankFeeders) {
+      )) {
         const throughput = (unit as any).dailyThroughputBbl;
         const liquidType = (unit as any).liquidType;
 
-        // W-15A: hydrocarbon liquids
         if (throughput != null && liquidType) {
           const bblPerDay = Number(throughput);
           if (bblPerDay <= 0 || bblPerDay >= METHOD_3_MAX_BBL_PER_DAY) {
-            this.logger.warn(
-              `${unit.tag}: ${bblPerDay} bbl/day is outside Method 3 ` +
-                `(> 0 and < ${METHOD_3_MAX_BBL_PER_DAY}). Method 1 or 2 required — skipped.`,
+            skip(
+              unit,
+              "TANK_THROUGHPUT_ABOVE_METHOD_3",
+              `Throughput of ${bblPerDay} bbl/day is outside Calculation Method 3 (must be >0 and <${METHOD_3_MAX_BBL_PER_DAY}).`,
+              "Streams at or above 10 bbl/day require Method 1 (process simulation) or Method 2 (sampled liquid composition), neither of which is implemented yet.",
             );
           } else {
             const ch4Factor = await this.lookupFactor(
-              tx, "STORAGE_TANK", "CH4", `${liquidType}_CH4`,
+              tx,
+              "STORAGE_TANK",
+              "CH4",
+              `${liquidType}_CH4`,
             );
             const co2Factor = await this.lookupFactor(
-              tx, "STORAGE_TANK", "CO2", `${liquidType}_CO2`,
+              tx,
+              "STORAGE_TANK",
+              "CO2",
+              `${liquidType}_CO2`,
             );
-            if (ch4Factor) {
+            if (!ch4Factor) {
+              skip(
+                unit,
+                "NO_ACTIVE_FACTOR",
+                `No active W-15A factor for liquid type ${liquidType}.`,
+              );
+            } else {
               records.push(
                 calculateTankHydrocarbonMethod3({
                   equipmentId: unit.id,
@@ -196,22 +222,27 @@ export class CalculatorService {
           }
         }
 
-        // W-15B: produced water
         const water = (unit as any).producedWaterBblPerYear;
         const pressure = (unit as any).feedPressurePsig;
         if (water != null && Number(water) > 0) {
           if (pressure == null) {
-            this.logger.warn(
-              `${unit.tag}: produced water present but feedPressurePsig is not ` +
-                `set — the W-15B tier spans a 33.9x range, so this is skipped ` +
-                `rather than guessed.`,
+            skip(
+              unit,
+              "TANK_MISSING_FEED_PRESSURE",
+              "Produced water volume is recorded but the feeding equipment pressure is not. The W-15B factor spans a 33.9x range across pressure tiers.",
+              "Record the representative separator/wellhead pressure in psig.",
             );
           } else {
             const tier = producedWaterTier(Number(pressure));
             const waterFactor = await this.lookupFactor(
-              tx, "STORAGE_TANK", "CH4", tier,
+              tx,
+              "STORAGE_TANK",
+              "CH4",
+              tier,
             );
-            if (waterFactor) {
+            if (!waterFactor) {
+              skip(unit, "NO_ACTIVE_FACTOR", `No active W-15B factor for ${tier}.`);
+            } else {
               records.push(
                 calculateTankProducedWaterMethod3({
                   equipmentId: unit.id,
@@ -226,54 +257,56 @@ export class CalculatorService {
         }
       }
 
-      // ---- Reciprocating compressor rod packing (§98.233(p)(10)(iv),
-      //      Eq. W-29E). Skips compressors subject to §60.5385b (those
-      //      MUST be measured) and any not venting to atmosphere. ----
+      // ---- Reciprocating compressor rod packing (§98.233(p)(10)(iv)) ----
       const totalHoursInYear =
         new Date(input.periodEnd).getUTCFullYear() % 4 === 0 ? 8784 : 8760;
-      const compressors = facility.equipment.filter(
+      for (const comp of facility.equipment.filter(
         (e) => e.category === "COMPRESSOR_RECIPROCATING",
-      );
-      for (const comp of compressors) {
+      )) {
         if ((comp as any).isSubjectToOOOObCompressorStandards) {
-          this.logger.warn(
-            `Compressor ${comp.tag} is subject to §60.5385b — measurement ` +
-              `required; W-29E factor path not applicable. Skipped.`,
+          skip(
+            comp,
+            "COMPRESSOR_REQUIRES_MEASUREMENT",
+            "Subject to the OOOOb reciprocating compressor standards in §60.5385b. Volumetric emissions must be measured on the §60.5385b(a) schedule — no emission factor substitute is permitted.",
+            "Record measured emissions, or confirm this compressor is not subject to §60.5385b.",
           );
           continue;
         }
-        if ((comp as any).ventedToAtmosphere === false) continue;
-
+        if ((comp as any).ventedToAtmosphere === false) {
+          skip(
+            comp,
+            "NOT_VENTED_TO_ATMOSPHERE",
+            "Rod packing emissions route to a flare, combustion, or vapor recovery system. §98.233(p) does not require them to be determined.",
+          );
+          continue;
+        }
         const ch4Factor = await this.lookupFactor(
           tx,
           "COMPRESSOR_RECIPROCATING",
           "CH4",
           "ROD_PACKING_CH4",
         );
-        if (!ch4Factor) continue;
+        if (!ch4Factor) {
+          skip(comp, "NO_ACTIVE_FACTOR", "No active W-29E rod packing factor.");
+          continue;
+        }
         const co2Factor = await this.lookupFactor(
           tx,
           "COMPRESSOR_RECIPROCATING",
           "CO2",
           "ROD_PACKING_CO2",
         );
-
-        const operatingHours =
-          (comp as any).operatingHours ??
-          overrides.compressorHours ??
-          Math.min(periodHours, totalHoursInYear);
-
         records.push(
           calculateCompressorRodPacking({
             equipmentId: comp.id,
             equipmentTag: comp.tag,
-            operatingHours,
+            operatingHours:
+              (comp as any).operatingHours ??
+              overrides.compressorHours ??
+              Math.min(periodHours, totalHoursInYear),
             totalHoursInYear,
             ch4MoleFraction: ch4Fraction,
-            co2MoleFraction:
-              facility.co2MoleFraction != null
-                ? Number(facility.co2MoleFraction)
-                : 0,
+            co2MoleFraction: co2Fraction,
             isCompositionAssumed: compositionAssumed,
             ch4Factor,
             co2Factor: co2Factor ?? undefined,
@@ -281,27 +314,32 @@ export class CalculatorService {
         );
       }
 
-      // ---- Equipment leaks (§98.233(r), Table W-1 major-equipment
-      //      population method). One record per mapped equipment item. ----
+      // ---- Equipment leaks (§98.233(r), Table W-1 major equipment) ----
       const serviceType = DEFAULT_LEAK_SERVICE_TYPE;
-      const serviceTypeAssumed = true; // no Facility.leakServiceType yet
       for (const eq of facility.equipment) {
         const majorType = LEAK_MAJOR_EQUIPMENT_MAP[eq.category];
-        if (!majorType) continue;
+        if (!majorType) continue; // not major equipment; nothing is owed
         const factor = await this.lookupFactor(
           tx,
           "FUGITIVE_COMPONENT",
           "CH4",
           `${majorType}_${serviceType}`,
         );
-        if (!factor) continue;
+        if (!factor) {
+          skip(
+            eq,
+            "NO_ACTIVE_FACTOR",
+            `No active equipment-leak factor for ${majorType} in ${serviceType} service.`,
+          );
+          continue;
+        }
         records.push(
           calculateEquipmentLeak({
             equipmentId: eq.id,
             equipmentTag: eq.tag,
             majorEquipmentType: majorType,
             serviceType,
-            isServiceTypeAssumed: serviceTypeAssumed,
+            isServiceTypeAssumed: true,
             hoursOperated: periodHours,
             ch4MoleFraction: ch4Fraction,
             isCompositionAssumed: compositionAssumed,
@@ -310,14 +348,10 @@ export class CalculatorService {
         );
       }
 
-      return this.aggregate(input, records);
+      return this.aggregate(input, records, skipped);
     });
   }
 
-  /**
-   * Persist a CalculationResult as EmissionRecord rows.
-   * Returns the count of records written.
-   */
   async persistResults(
     orgId: string,
     result: CalculationResult,
@@ -356,7 +390,8 @@ export class CalculatorService {
 
       this.logger.log(
         `Persisted ${written} emission records for facility ${result.facilityId} ` +
-          `(${result.totals.co2eMetricTons.toFixed(2)} mt CO2e total)`,
+          `(${result.totals.co2eMetricTons.toFixed(2)} mt CO2e total, ` +
+          `${result.skipped.length} equipment skipped)`,
       );
       return written;
     });
@@ -366,20 +401,6 @@ export class CalculatorService {
   // INTERNAL HELPERS
   // ============================================================
 
-  /**
-   * Look up the active emission factor for a given equipment category,
-   * pollutant, and (optionally) subType variant.
-   *
-   * subType semantics:
-   *   - undefined → category has no variants; match any subType.
-   *   - null / value → exact match on subType. An equipment row with an
-   *     unspecified variant therefore finds NO factor and is skipped with
-   *     a warning — a compliance calculation must never guess.
-   *
-   * EmissionFactor is a global reference table — not RLS scoped, but we
-   * still accept a `tx` client so it participates in the caller's
-   * transaction.
-   */
   private async lookupFactor(
     tx: any,
     equipmentCategory: string,
@@ -397,22 +418,11 @@ export class CalculatorService {
         pollutant,
         ...(subType !== undefined ? { subType } : {}),
         applicableFrom: { lte: new Date() },
-        OR: [
-          { applicableUntil: null },
-          { applicableUntil: { gt: new Date() } },
-        ],
+        OR: [{ applicableUntil: null }, { applicableUntil: { gt: new Date() } }],
       },
       orderBy: { applicableFrom: "desc" },
     });
-
-    if (factors.length === 0) {
-      this.logger.warn(
-        `No active emission factor for ${equipmentCategory}/${pollutant}` +
-          (subType !== undefined ? `/${subType ?? "NULL"}` : ""),
-      );
-      return null;
-    }
-
+    if (factors.length === 0) return null;
     const chosen = factors[0];
     return {
       id: chosen.id,
@@ -422,12 +432,10 @@ export class CalculatorService {
     };
   }
 
-    private inferEmissionSource(
+  private inferEmissionSource(
     calculationMethod: string,
     equipmentCategory: string,
   ): string {
-    // Equipment-leak records are FUGITIVE regardless of the equipment
-    // category they attach to; everything else keeps the category rule.
     if (calculationMethod === "SUBPART_W_LEAK_MAJOR_EQUIPMENT_POPULATION") {
       return "FUGITIVE";
     }
@@ -444,6 +452,7 @@ export class CalculatorService {
   private aggregate(
     input: CalculationInput,
     records: MethodologyResult[],
+    skipped: SkippedEquipment[],
   ): CalculationResult {
     let co2eMetricTons = 0;
     const byPollutant: Record<string, number> = {};
@@ -460,6 +469,7 @@ export class CalculatorService {
       periodEnd: input.periodEnd,
       records,
       totals: { co2eMetricTons, byPollutant },
+      skipped,
     };
   }
 }

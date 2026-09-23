@@ -31,11 +31,6 @@ const EQUIPMENT_TEMPLATE =
 export class ImportController {
   constructor(private imports: ImportService) {}
 
-  /**
-   * Upload facilities (.csv or .xlsx). Default is a dry-run validation
-   * report; pass ?commit=true to write. Commit is all-or-nothing and is
-   * refused when any row has errors.
-   */
   @Roles('ORG_ADMIN', 'EHS_COORDINATOR')
   @Post('facilities')
   @UseInterceptors(FileInterceptor('file'))
@@ -50,7 +45,13 @@ export class ImportController {
     @Query('commit') commit?: string,
   ) {
     if (!file?.buffer) throw new BadRequestException('No file uploaded (field name: "file")')
-    return this.imports.importFacilities(user.orgId, file.buffer, commit === 'true')
+    return this.imports.importFacilities(
+      user.orgId,
+      file.buffer,
+      commit === 'true',
+      user.id,
+      file.originalname,
+    )
   }
 
   @Roles('ORG_ADMIN', 'EHS_COORDINATOR')
@@ -67,10 +68,21 @@ export class ImportController {
     @Query('commit') commit?: string,
   ) {
     if (!file?.buffer) throw new BadRequestException('No file uploaded (field name: "file")')
-    return this.imports.importEquipment(user.orgId, file.buffer, commit === 'true')
+    return this.imports.importEquipment(
+      user.orgId,
+      file.buffer,
+      commit === 'true',
+      user.id,
+      file.originalname,
+    )
   }
 
-  /** Downloadable CSV templates with a header row and one example row. */
+  /** Bulk import history — every attempt, including dry runs and rejects. */
+  @Get('history')
+  history(@CurrentUser() user: any, @Query('limit') limit?: string) {
+    return this.imports.listRuns(user.orgId, limit ? parseInt(limit, 10) : 25)
+  }
+
   @Get('templates/facilities.csv')
   facilityTemplate(@Res() res: Response) {
     res.setHeader('Content-Type', 'text/csv')
