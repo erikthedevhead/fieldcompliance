@@ -74,6 +74,16 @@ enum ReportStatus {
   REJECTED
   AMENDED
 }
+enum ScheduleType {
+  /// Obligation falls on a fixed calendar date for a completed
+  /// reporting year, e.g. the Subpart W annual report. The clock is the
+  /// calendar, not the last completion.
+  FIXED_ANNUAL
+  /// Obligation recurs frequencyDays after the last completion, e.g.
+  /// quarterly OGI surveys and repair windows.
+  ROLLING_INTERVAL
+}
+
 enum DeadlineStatus {
   PENDING
   IN_PROGRESS
@@ -297,6 +307,17 @@ model RegulationRule {
   emissionSource      EmissionSource?
   requirementType     String             // SURVEY | REPORT | CALCULATE | RECORD | SUBMIT
   frequencyDays       Int?
+  /// How the due date is computed. FIXED_ANNUAL anchors to the calendar
+  /// (annual reports); ROLLING_INTERVAL anchors to the last completion
+  /// (surveys, repair windows). Defaults to ROLLING_INTERVAL so existing
+  /// rules keep their behavior until explicitly reclassified.
+  scheduleType        ScheduleType @default(ROLLING_INTERVAL)
+  /// FIXED_ANNUAL only: calendar month (1-12) the report is due.
+  fixedDueMonth       Int?
+  /// FIXED_ANNUAL only: calendar day the report is due. Kept as data so
+  /// a regulatory date change is a seed update, not a code change --
+  /// EPA moved RY2025 Subpart W reporting to October, for instance.
+  fixedDueDay         Int?
   thresholdValue      Decimal?           @db.Decimal(10, 4)
   thresholdUnit       String?            // tpy | scfd | ppm
   deadlineOffsetDays  Int?

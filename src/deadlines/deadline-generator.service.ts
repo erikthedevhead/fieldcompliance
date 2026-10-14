@@ -3,6 +3,11 @@ import { Cron, CronExpression } from '@nestjs/schedule'
 import { Prisma } from '@prisma/client'
 
 import { PrismaService } from '../prisma/prisma.service'
+import {
+  computeFixedAnnual,
+  computeRollingInterval,
+  type ComputedSchedule,
+} from './deadline-schedule'
 
 /**
  * Generates upcoming Deadline rows from RegulationRule definitions.
@@ -13,26 +18,26 @@ import { PrismaService } from '../prisma/prisma.service'
  *
  * Idempotent: if an active deadline already exists for a (facility, ruleCode)
  * pair, no new one is created. Safe to re-run.
+ *
+ * 2026-10-14 SCHEDULE TYPES: due dates previously came from a single
+ * rolling-interval calculation anchored on the last completion (or on
+ * facility commissioning). That is right for surveys and repair windows
+ * but wrong for annual reports, which fall on a statutory calendar date
+ * covering a calendar year. Rules now declare which shape they are; the
+ * arithmetic itself lives in deadline-schedule.ts and is unit tested.
  */
 @Injectable()
 export class DeadlineGeneratorService {
   private readonly logger = new Logger(DeadlineGeneratorService.name)
 
-  private readonly LOOKAHEAD_DAYS = 180
   private readonly ACTIONABLE_TYPES = ['SURVEY', 'REPORT', 'CALCULATE', 'SUBMIT']
 
   constructor(private prisma: PrismaService) {}
 
-  /**
-   * Daily cron — generates deadlines for every active org.
-   * The org list read requires asSystem (cross-tenant), then each
-   * per-org generation runs inside asOrg for RLS-scoped work.
-   */
   @Cron(CronExpression.EVERY_DAY_AT_6AM)
   async runDailyGeneration() {
     this.logger.log('Starting daily deadline generation')
 
-    // Cross-tenant read — trusted system operation
     const orgs = await this.prisma.asSystem(tx =>
       tx.organization.findMany({
         where: { isActive: true },
@@ -43,8 +48,7 @@ export class DeadlineGeneratorService {
     let totalCreated = 0
     for (const org of orgs) {
       try {
-        const created = await this.generateForOrg(org.id)
-        totalCreated += created
+        totalCreated += await this.generateForOrg(org.id)
       } catch (err) {
         this.logger.error(
           `Failed for org ${org.name} (${org.id})`,
@@ -59,10 +63,6 @@ export class DeadlineGeneratorService {
     return { orgsProcessed: orgs.length, created: totalCreated }
   }
 
-  /**
-   * Generate deadlines for a single org. Returns the number created.
-   * Wraps all queries in asOrg so RLS enforces tenant isolation.
-   */
   async generateForOrg(orgId: string): Promise<number> {
     return this.prisma.asOrg(orgId, async tx => {
       const enrollments = await tx.orgRegulation.findMany({
@@ -87,26 +87,31 @@ export class DeadlineGeneratorService {
       const facilities = await tx.facility.findMany({
         where: { orgId, isActive: true },
         include: {
-          equipment: {
-            where: { isActive: true },
-            select: { category: true },
-          },
+          equipment: { where: { isActive: true }, select: { category: true } },
         },
       })
 
-      if (facilities.length === 0 || enrollments.length === 0) {
-        return 0
-      }
+      if (facilities.length === 0 || enrollments.length === 0) return 0
 
       let created = 0
+      const now = new Date()
 
       for (const enrollment of enrollments) {
         const currentVersion = enrollment.regulation.versions[0]
         if (!currentVersion) continue
 
         for (const rule of currentVersion.requirements) {
-          if (!rule.frequencyDays) continue
           if (!this.ACTIONABLE_TYPES.includes(rule.requirementType)) continue
+
+          const isFixed = (rule as any).scheduleType === 'FIXED_ANNUAL'
+          // Rolling rules need a frequency; fixed-annual rules need a date.
+          if (!isFixed && !rule.frequencyDays) continue
+          if (isFixed && (!(rule as any).fixedDueMonth || !(rule as any).fixedDueDay)) {
+            this.logger.warn(
+              `Rule ${rule.ruleCode} is FIXED_ANNUAL but has no fixedDueMonth/fixedDueDay — skipped.`,
+            )
+            continue
+          }
 
           for (const facility of facilities) {
             if (rule.equipmentCategory) {
@@ -116,17 +121,6 @@ export class DeadlineGeneratorService {
               if (!hasMatching) continue
             }
 
-            const next = await this.computeNextDueDate(
-              tx,
-              facility.id,
-              rule.ruleCode,
-              rule.frequencyDays,
-              rule.deadlineOffsetDays ?? 0,
-              facility.commissionedAt,
-            )
-
-            if (!next) continue
-
             const existing = await tx.deadline.findFirst({
               where: {
                 facilityId: facility.id,
@@ -135,6 +129,32 @@ export class DeadlineGeneratorService {
               },
             })
             if (existing) continue
+
+            let next: ComputedSchedule | null = null
+            try {
+              next = isFixed
+                ? computeFixedAnnual(
+                    now,
+                    (rule as any).fixedDueMonth,
+                    (rule as any).fixedDueDay,
+                  )
+                : await this.computeRolling(
+                    tx,
+                    facility.id,
+                    rule.ruleCode,
+                    rule.frequencyDays as number,
+                    rule.deadlineOffsetDays ?? 0,
+                    facility.commissionedAt,
+                    now,
+                  )
+            } catch (err) {
+              this.logger.error(
+                `Schedule computation failed for ${rule.ruleCode} / ${facility.name}: ` +
+                  (err instanceof Error ? err.message : String(err)),
+              )
+              continue
+            }
+            if (!next) continue
 
             await tx.deadline.create({
               data: {
@@ -161,49 +181,28 @@ export class DeadlineGeneratorService {
   }
 
   /**
-   * Compute the next due date for a (facility, rule) combination.
-   * Takes the transaction client so it runs inside the caller's asOrg scope.
+   * Rolling obligations anchor on the last completion, falling back to
+   * facility commissioning and then to today. Takes the transaction
+   * client so it runs inside the caller's asOrg scope.
    */
-  private async computeNextDueDate(
+  private async computeRolling(
     tx: Prisma.TransactionClient,
     facilityId: string,
     ruleCode: string,
     frequencyDays: number,
     deadlineOffsetDays: number,
     facilityCommissionedAt: Date | null,
-  ): Promise<{ dueDate: Date; periodStart: Date; periodEnd: Date } | null> {
+    now: Date,
+  ): Promise<ComputedSchedule> {
     const lastCompleted = await tx.deadline.findFirst({
       where: { facilityId, ruleCode, status: 'COMPLETED' },
       orderBy: { dueDate: 'desc' },
     })
 
-    let anchor: Date
-    if (lastCompleted) {
-      anchor = lastCompleted.dueDate
-    } else if (facilityCommissionedAt) {
-      anchor = facilityCommissionedAt
-    } else {
-      anchor = new Date()
-    }
+    const anchor = lastCompleted
+      ? lastCompleted.dueDate
+      : (facilityCommissionedAt ?? now)
 
-    const dueDate = this.addDays(anchor, frequencyDays)
-
-    // Roll forward past-due computed dates
-    let adjustedDueDate = dueDate
-    const now = new Date()
-    while (adjustedDueDate < now) {
-      adjustedDueDate = this.addDays(adjustedDueDate, frequencyDays)
-    }
-
-    const periodEnd = this.addDays(adjustedDueDate, -deadlineOffsetDays)
-    const periodStart = this.addDays(periodEnd, -frequencyDays)
-
-    return { dueDate: adjustedDueDate, periodStart, periodEnd }
-  }
-
-  private addDays(date: Date, days: number): Date {
-    const result = new Date(date)
-    result.setDate(result.getDate() + days)
-    return result
+    return computeRollingInterval(now, anchor, frequencyDays, deadlineOffsetDays)
   }
 }
